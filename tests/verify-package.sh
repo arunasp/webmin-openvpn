@@ -31,7 +31,7 @@ fi
 listing=$(tar -tzf "$package")
 
 echo "== contents"
-for want in module.info config.info config lang/en openvpn-server-lib.pl index.cgi; do
+for want in module.info config.info config lang/en openvpn-server-lib.pl index.cgi install_check.pl; do
     case "$listing" in
         *"$module/$want"*) pass "package contains $want" ;;
         *) fail "package contains $want" "not in $package" ;;
@@ -54,6 +54,7 @@ info=$(tar -xzOf "$package" "$module/module.info")
 assert_contains "category is servers" "$info" "category=servers"
 assert_contains "declares a name" "$info" "name="
 assert_contains "declares a version" "$info" "version="
+assert_contains "declares a long description" "$info" "longdesc="
 
 echo
 echo "== every string used is a string defined"

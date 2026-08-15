@@ -1,5 +1,6 @@
 name=OpenVPN
 desc=OpenVPN
+longdesc=Manage an OpenVPN server, its easy-rsa 3 certificate authority, and the client profiles issued from it
 category=servers
 version=1.0
 depends=1.000

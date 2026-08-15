@@ -1,9 +1,9 @@
 #!/bin/bash
 # Suite for tools/vpn-client and tools/vpn-server.
 #
-# Everything runs against a fixture site built by fixture.sh, with systemctl
-# and id mocked on PATH. Each scenario gets a fresh fixture, so a test that
-# mutates the PKI cannot change what a later test sees.
+# Everything runs against a fixture site built by fixture.sh, with systemctl,
+# id and openvpn mocked on PATH. Each scenario gets a fresh fixture, so a test
+# that mutates the PKI cannot change what a later test sees.
 #
 # The failure scenarios matter more than the happy paths here: a rollback that
 # has never been observed rolling back is not a rollback.
@@ -54,6 +54,58 @@ restart|reload-or-restart)
 esac
 "
     printf '%s\n' "$root"
+}
+
+# new_bare_fixture <genkey-syntax> -- a host with easy-rsa and nothing else.
+# genkey syntax "modern" accepts `--genkey secret FILE` (OpenVPN 2.6),
+# "legacy" only `--genkey --secret FILE` (2.4 and earlier), "none" neither.
+new_bare_fixture() {
+    local syntax=$1 root
+    root=$(bash "$here/fixture.sh" --bare)
+    FIXTURES+=("$root")
+
+    mock_bin "$root/bin" id "
+if [ \"\${1:-}\" = -u ]; then echo 0; exit 0; fi
+exec /usr/bin/id \"\$@\"
+"
+    mock_bin "$root/bin" systemctl "
+echo \"systemctl \$*\" >> $root/systemctl.log
+case \"\${1:-}\" in
+is-active) echo active; exit 0 ;;
+*) exit 0 ;;
+esac
+"
+    mock_bin "$root/bin" openvpn "
+if [ \"\${1:-}\" != --genkey ]; then exit 1; fi
+case \"$syntax\" in
+modern)
+    [ \"\${2:-}\" = secret ] || { echo 'Options error: unknown option' >&2; exit 1; }
+    printf 'fixture-tls-crypt-key\\n' > \"\$3\"; exit 0 ;;
+legacy)
+    [ \"\${2:-}\" = --secret ] || { echo 'Options error: unknown option' >&2; exit 1; }
+    printf 'fixture-tls-crypt-key\\n' > \"\$3\"; exit 0 ;;
+*)
+    echo 'Options error: unknown option' >&2; exit 1 ;;
+esac
+"
+    printf '%s\n' "$root"
+}
+
+# run_init <root> <args...> ; init writes a site file, so unlike the other
+# runners this one points SITE_CONF at the fixture rather than /dev/null.
+run_init() {
+    local root=$1
+    shift
+    OUT=$(PATH="$root/bin:$PATH" \
+        SITE_CONF="$root/default/vpn-tools" \
+        SERVER_DIR="$root/server" \
+        CLIENT_DIR="$root/clients" \
+        EASYRSA_DIR="$root/easyrsa" \
+        STATUS_FILE="$root/log/status.log" \
+        UPNP_DEFAULTS="$root/default/upnp-port-forward" \
+        VPN_CLIENT="$root/bin/vpn-client-wrapper" \
+        bash "$VPN_SERVER_BIN" init "$@" 2>&1)
+    RC=$?
 }
 
 # run_client <root> <args...> ; sets OUT and RC
@@ -266,5 +318,88 @@ assert_exit "apply-config rejects a file with no directives" 1 "$RC"
 assert_file_contains "the running config was not touched" \
     "$root/server/server.conf" "^port 1194"
 assert_not_contains "systemctl was never called" "$(cat "$root/systemctl.log" 2>/dev/null)" "restart"
+
+echo
+echo "== vpn-server: init on a bare host"
+root=$(new_bare_fixture modern)
+run_init "$root" --host vpn.example.com --push "192.168.50.0 255.255.255.0" \
+    --dns 192.168.50.1
+assert_exit "init" 0 "$RC"
+assert_contains "init reports the listening port" "$OUT" "1194/udp"
+assert_file_contains "server.conf has the port" "$root/server/server.conf" "^port 1194"
+assert_file_contains "server.conf pushes the route" \
+    "$root/server/server.conf" 'push "route 192.168.50.0 255.255.255.0"'
+assert_file_contains "server.conf names the server certificate" \
+    "$root/server/server.conf" "^cert pki/server.crt"
+assert_file_contains "the CA was built" "$root/easyrsa/pki/ca.crt" "BEGIN CERTIFICATE"
+assert_file_contains "the server certificate was issued" \
+    "$root/server/pki/server.crt" "BEGIN CERTIFICATE"
+assert_file_contains "a CRL exists" "$root/server/pki/crl.pem" "X509 CRL"
+assert_file_contains "the tls-crypt key was generated" \
+    "$root/server/tls-crypt.key" "fixture-tls-crypt-key"
+assert_eq "the server key is not world readable" "600" \
+    "$(stat -c %a "$root/server/pki/server.key")"
+assert_file_contains "the site file records the host" \
+    "$root/default/vpn-tools" "REMOTE_HOST=vpn.example.com"
+assert_eq "the site file is private" "600" \
+    "$(stat -c %a "$root/default/vpn-tools")"
+assert_file_contains "the unit was enabled and started" "$root/systemctl.log" \
+    "enable --now"
+
+echo
+echo "== the new server is immediately usable by vpn-client"
+OUT=$(PATH="$root/bin:$PATH" SITE_CONF=/dev/null EASYRSA_DIR="$root/easyrsa" \
+    CLIENT_DIR="$root/clients" SERVER_DIR="$root/server" \
+    STATUS_FILE="$root/log/status.log" \
+    bash "$VPN_CLIENT_BIN" add first-client 2>&1)
+RC=$?
+assert_exit "add a client to the new server" 0 "$RC"
+assert_file_contains "its profile names the host from server.conf" \
+    "$root/clients/first-client.ovpn" "remote vpn.example.com 1194"
+OUT=$(PATH="$root/bin:$PATH" SITE_CONF=/dev/null EASYRSA_DIR="$root/easyrsa" \
+    CLIENT_DIR="$root/clients" SERVER_DIR="$root/server" \
+    STATUS_FILE="$root/log/status.log" \
+    bash "$VPN_CLIENT_BIN" list 2>&1)
+assert_contains "the client is listed" "$OUT" "first-client"
+assert_not_contains "the server certificate is not listed as a client" \
+    "$OUT" "gateway"
+
+echo
+echo "== init: refusals"
+run_init "$root" --host vpn.example.com
+assert_exit "init refuses to overwrite an existing server" 1 "$RC"
+assert_contains "and says why" "$OUT" "already exists"
+
+root=$(new_bare_fixture modern)
+run_init "$root"
+assert_exit "init requires a host name" 1 "$RC"
+run_init "$root" --host 'not a host'
+assert_exit "init rejects an unsafe host name" 1 "$RC"
+run_init "$root" --host vpn.example.com --port 70000
+assert_exit "init rejects an out-of-range port" 1 "$RC"
+run_init "$root" --host vpn.example.com --proto sctp
+assert_exit "init rejects an unknown protocol" 1 "$RC"
+assert_file_absent "a refused init leaves no config" "$root/server/server.conf"
+
+echo
+echo "== init: the openvpn --genkey syntax is detected, not assumed"
+root=$(new_bare_fixture legacy)
+run_init "$root" --host vpn.example.com
+assert_exit "init works against the older --genkey --secret form" 0 "$RC"
+assert_file_contains "the key was still generated" \
+    "$root/server/tls-crypt.key" "fixture-tls-crypt-key"
+
+root=$(new_bare_fixture none)
+run_init "$root" --host vpn.example.com
+assert_exit "init fails loudly when neither form works" 1 "$RC"
+assert_contains "and names the step that failed" "$OUT" "tls-crypt"
+
+echo
+echo "== init: easy-rsa must be found, not guessed"
+root=$(new_bare_fixture modern)
+rm -f "$root/easyrsa/easyrsa"
+run_init "$root" --host vpn.example.com
+assert_exit "init fails when easy-rsa is absent" 1 "$RC"
+assert_contains "and says how to fix it" "$OUT" "EASYRSA_BIN"
 
 report

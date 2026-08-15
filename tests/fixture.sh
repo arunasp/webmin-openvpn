@@ -8,15 +8,75 @@
 # would otherwise need a full easy-rsa 3 install, and systemctl.
 #
 # Prints the fixture root on stdout.
+#
+# With --bare it stops after creating the directory skeleton and the fake
+# easyrsa, so `vpn-server init` has the same starting point a real unconfigured
+# host gives it: a tool and nowhere to put anything yet.
 set -euo pipefail
 
 CURVE=${CURVE:-secp384r1}
+BARE=0
+[ "${1:-}" = "--bare" ] && BARE=1
 
 root=$(mktemp -d)
 mkdir -p "$root/easyrsa/pki/issued" "$root/easyrsa/pki/private" \
          "$root/server/pki" "$root/clients" "$root/log" "$root/bin" \
          "$root/default"
 chmod 700 "$root/clients"
+
+# --- fake easyrsa ---------------------------------------------------------
+# Reproduces the observable behaviour the tools depend on and nothing else:
+# init-pki, build-ca, build-server-full, build-client-full, revoke, gen-crl.
+cat > "$root/easyrsa/easyrsa" <<EOF
+#!/bin/bash
+set -eu
+cd "\$(dirname "\$0")"
+args=()
+for a in "\$@"; do [ "\$a" = "--batch" ] || args+=("\$a"); done
+issue() {
+    local name=\$1
+    openssl ecparam -genkey -name $CURVE -out "pki/private/\$name.key" 2>/dev/null
+    openssl req -new -key "pki/private/\$name.key" -subj "/CN=\$name" \\
+        -out "/tmp/\$name.csr" 2>/dev/null
+    openssl x509 -req -in "/tmp/\$name.csr" -CA pki/ca.crt -CAkey pki/ca.key \\
+        -CAcreateserial -days 1080 -sha256 -out "pki/issued/\$name.crt" 2>/dev/null
+    rm -f "/tmp/\$name.csr"
+    printf 'V\t290730185650Z\t\t%02d\tunknown\t/CN=%s\n' \\
+        "\$(( \$(wc -l < pki/index.txt) + 1 ))" "\$name" >> pki/index.txt
+}
+case "\${args[0]}" in
+init-pki)
+    rm -rf pki
+    mkdir -p pki/issued pki/private
+    : > pki/index.txt
+    ;;
+build-ca)
+    openssl ecparam -genkey -name $CURVE -out pki/ca.key 2>/dev/null
+    openssl req -x509 -new -key pki/ca.key -sha256 -days 3650 \\
+        -subj "/CN=\${EASYRSA_REQ_CN:-fixture-ca}" -out pki/ca.crt 2>/dev/null
+    ;;
+build-server-full|build-client-full)
+    issue "\${args[1]}"
+    ;;
+revoke)
+    sed -i "s|^V\(.*\)/CN=\${args[1]}\\\$|R\1/CN=\${args[1]}|" pki/index.txt
+    ;;
+gen-crl)
+    printf -- '-----BEGIN X509 CRL-----\nfixture\n-----END X509 CRL-----\n' > pki/crl.pem
+    ;;
+*)
+    echo "fixture easyrsa: unsupported \${args[0]}" >&2
+    exit 1
+    ;;
+esac
+EOF
+chmod 755 "$root/easyrsa/easyrsa"
+
+if [ "$BARE" = 1 ]; then
+    rm -rf "$root/easyrsa/pki" "$root/server/pki"
+    printf '%s\n' "$root"
+    exit 0
+fi
 
 # --- CA ------------------------------------------------------------------
 openssl ecparam -genkey -name "$CURVE" -out "$root/easyrsa/pki/ca.key" 2>/dev/null
@@ -94,42 +154,5 @@ EOF
     printf 'GLOBAL_STATS,Max bcast/mcast queue length,0\n'
     printf 'END\n'
 } > "$root/log/status.log"
-
-# --- fake easyrsa ---------------------------------------------------------
-# Reproduces the observable behaviour the tool depends on: build-client-full
-# issues a certificate and appends a V line; revoke rewrites the entry as R;
-# gen-crl writes a CRL. Nothing else.
-cat > "$root/easyrsa/easyrsa" <<EOF
-#!/bin/bash
-set -eu
-cd "\$(dirname "\$0")"
-args=()
-for a in "\$@"; do [ "\$a" = "--batch" ] || args+=("\$a"); done
-case "\${args[0]}" in
-build-client-full)
-    name=\${args[1]}
-    openssl ecparam -genkey -name $CURVE -out "pki/private/\$name.key" 2>/dev/null
-    openssl req -new -key "pki/private/\$name.key" -subj "/CN=\$name" \\
-        -out "/tmp/\$name.csr" 2>/dev/null
-    openssl x509 -req -in "/tmp/\$name.csr" -CA pki/ca.crt -CAkey pki/ca.key \\
-        -CAcreateserial -days 1080 -sha256 -out "pki/issued/\$name.crt" 2>/dev/null
-    rm -f "/tmp/\$name.csr"
-    printf 'V\t290730185650Z\t\t%02d\tunknown\t/CN=%s\n' \\
-        "\$(( \$(wc -l < pki/index.txt) + 1 ))" "\$name" >> pki/index.txt
-    ;;
-revoke)
-    name=\${args[1]}
-    sed -i "s|^V\(.*\)/CN=\$name\$|R\1/CN=\$name|" pki/index.txt
-    ;;
-gen-crl)
-    printf -- '-----BEGIN X509 CRL-----\nfixture\n-----END X509 CRL-----\n' > pki/crl.pem
-    ;;
-*)
-    echo "fixture easyrsa: unsupported \${args[0]}" >&2
-    exit 1
-    ;;
-esac
-EOF
-chmod 755 "$root/easyrsa/easyrsa"
 
 printf '%s\n' "$root"
