@@ -35,7 +35,10 @@ args=()
 for a in "\$@"; do [ "\$a" = "--batch" ] || args+=("\$a"); done
 issue() {
     local name=\$1
-    openssl ecparam -genkey -name $CURVE -out "pki/private/\$name.key" 2>/dev/null
+    printf 'algo=%s curve=%s\\n' "\${EASYRSA_ALGO:-unset}" "\${EASYRSA_CURVE:-unset}" \\
+        >> ../easyrsa-env.log
+    openssl ecparam -genkey -name "\${EASYRSA_CURVE:-$CURVE}" \\
+        -out "pki/private/\$name.key" 2>/dev/null
     openssl req -new -key "pki/private/\$name.key" -subj "/CN=\$name" \\
         -out "/tmp/\$name.csr" 2>/dev/null
     openssl x509 -req -in "/tmp/\$name.csr" -CA pki/ca.crt -CAkey pki/ca.key \\
@@ -51,7 +54,9 @@ init-pki)
     : > pki/index.txt
     ;;
 build-ca)
-    openssl ecparam -genkey -name $CURVE -out pki/ca.key 2>/dev/null
+    printf 'algo=%s curve=%s\\n' "\${EASYRSA_ALGO:-unset}" "\${EASYRSA_CURVE:-unset}" \\
+        >> ../easyrsa-env.log
+    openssl ecparam -genkey -name "\${EASYRSA_CURVE:-$CURVE}" -out pki/ca.key 2>/dev/null
     openssl req -x509 -new -key pki/ca.key -sha256 -days 3650 \\
         -subj "/CN=\${EASYRSA_REQ_CN:-fixture-ca}" -out pki/ca.crt 2>/dev/null
     ;;

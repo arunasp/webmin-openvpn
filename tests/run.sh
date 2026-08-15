@@ -346,6 +346,27 @@ assert_eq "the site file is private" "600" \
 assert_file_contains "the unit was enabled and started" "$root/systemctl.log" \
     "enable --now"
 
+# easy-rsa defaults to RSA 2048. Everything else in this project is EC, so
+# init has to say so explicitly - and this asserts that it did, on every
+# certificate it had built, not just the first.
+assert_file_contains "init asked easy-rsa for EC" \
+    "$root/easyrsa-env.log" "algo=ec"
+assert_file_contains "init named the curve" \
+    "$root/easyrsa-env.log" "curve=secp384r1"
+assert_not_contains "no certificate was built with the default algorithm" \
+    "$(cat "$root/easyrsa-env.log")" "algo=unset"
+assert_eq "the CA key really is EC" "id-ecPublicKey" \
+    "$(openssl x509 -in "$root/easyrsa/pki/ca.crt" -noout -text |
+       sed -n 's/.*Public Key Algorithm: //p' | head -1)"
+assert_eq "the server key really is EC" "id-ecPublicKey" \
+    "$(openssl x509 -in "$root/server/pki/server.crt" -noout -text |
+       sed -n 's/.*Public Key Algorithm: //p' | head -1)"
+
+root=$(new_bare_fixture modern)
+run_init "$root" --host vpn.example.com --curve prime256v1
+assert_exit "init accepts another curve" 0 "$RC"
+assert_file_contains "and passes it through" "$root/easyrsa-env.log" "curve=prime256v1"
+
 echo
 echo "== the new server is immediately usable by vpn-client"
 OUT=$(PATH="$root/bin:$PATH" SITE_CONF=/dev/null EASYRSA_DIR="$root/easyrsa" \
