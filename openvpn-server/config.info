@@ -1,0 +1,3 @@
+vpn_client=Full path to the vpn-client tool,0,
+vpn_server=Full path to the vpn-server tool,0,
+clients_dir=Directory holding the .ovpn profiles,0,

@@ -1,0 +1,250 @@
+#!/bin/bash
+# Server-side operations for an OpenVPN server.
+#
+#   vpn-server status [--json]        unit state, listening port, connections
+#   vpn-server show-config            print server.conf
+#   vpn-server apply-config <file>    install a config, restart, roll back on failure
+#   vpn-server set-port <port> [proto] change the listening port everywhere it appears
+#
+# WHY set-port IS ONE OPERATION AND NOT AN EDITABLE FIELD: the listening port
+# exists in three places that must agree - server.conf, the UPnP mapping in
+# /etc/default/upnp-port-forward, and the `remote` line inside every issued
+# .ovpn profile. Changing one of them leaves a server that starts cleanly,
+# reports itself healthy, and is unreachable from every existing client. So
+# the port is changed by an operation that updates all three or none.
+#
+# WHY THE CHECK IS A RESTART AND NOT A PARSER: OpenVPN has no dry-run mode,
+# and a second-guess parser here would be a weaker authority than the daemon
+# itself. apply-config therefore backs up, installs, restarts, asks systemd
+# whether the unit came up, and restores the backup if it did not. This host
+# is administered over ssh rather than through the tunnel, so a failed restart
+# costs the VPN, not access to the box.
+#
+# Paths are overridable so the suite can exercise this code against a fixture
+# site with a mocked systemctl.
+#
+# SITE IDENTITY LIVES IN /etc/default/vpn-tools, NOT HERE. This repository is
+# public; the defaults below are placeholders. See DEPLOY.md.
+set -uo pipefail
+
+SITE_CONF=${SITE_CONF:-/etc/default/vpn-tools}
+# shellcheck source=/dev/null
+[ -r "$SITE_CONF" ] && . "$SITE_CONF"
+
+SERVER_DIR=${SERVER_DIR:-/etc/openvpn/server}
+CLIENT_DIR=${CLIENT_DIR:-/etc/openvpn/clients}
+STATUS_FILE=${STATUS_FILE:-/var/log/openvpn/status.log}
+SERVER_UNIT=${SERVER_UNIT:-openvpn-server@server}
+UPNP_UNIT=${UPNP_UNIT:-upnp-port-forward.service}
+UPNP_DEFAULTS=${UPNP_DEFAULTS:-/etc/default/upnp-port-forward}
+VPN_CLIENT=${VPN_CLIENT:-/usr/local/sbin/vpn-client}
+SERVER_CONF=$SERVER_DIR/server.conf
+
+need_root() {
+    [ "$(id -u)" -eq 0 ] || { echo "must run as root" >&2; exit 1; }
+}
+
+conf_value() {
+    awk -v k="$1" '$1 == k { v = $2 } END { print v }' "$SERVER_CONF"
+}
+
+timestamp() {
+    date +%Y%m%d-%H%M%S
+}
+
+json_string() {
+    if [ -z "${1:-}" ]; then
+        printf 'null'
+    else
+        printf '"%s"' "$(printf '%s' "$1" | sed 's/\\/\\\\/g; s/"/\\"/g')"
+    fi
+}
+
+connected_count() {
+    if [ -f "$STATUS_FILE" ]; then
+        grep -c '^CLIENT_LIST' "$STATUS_FILE" 2>/dev/null || echo 0
+    else
+        echo 0
+    fi
+}
+
+crl_next_update() {
+    local crl=$SERVER_DIR/pki/crl.pem
+    [ -r "$crl" ] || return 0
+    openssl crl -in "$crl" -noout -nextupdate 2>/dev/null | sed 's/nextUpdate=//'
+}
+
+# systemd is the only authority on whether the config the daemon just read is
+# usable. is-active alone is not enough: a unit that fails at startup can be
+# briefly "activating", so this waits for it to settle.
+unit_active() {
+    local unit=$1 tries=${2:-10} state
+    while [ "$tries" -gt 0 ]; do
+        state=$(systemctl is-active "$unit" 2>/dev/null)
+        case "$state" in
+            active) return 0 ;;
+            failed|inactive) return 1 ;;
+        esac
+        tries=$((tries - 1))
+        sleep 1
+    done
+    return 1
+}
+
+cmd_status() {
+    local active port proto count crl
+    active=$(systemctl is-active "$SERVER_UNIT" 2>/dev/null)
+    [ -n "$active" ] || active=unknown
+    port=$(conf_value port)
+    proto=$(conf_value proto)
+    count=$(connected_count)
+    crl=$(crl_next_update)
+    if [ "${1:-}" = "--json" ]; then
+        printf '{"unit":%s,"active":%s,"port":%s,"proto":%s,"connected":%s,"crl_next_update":%s,"config":%s}\n' \
+            "$(json_string "$SERVER_UNIT")" "$(json_string "$active")" \
+            "$(json_string "$port")" "$(json_string "$proto")" \
+            "$count" "$(json_string "$crl")" "$(json_string "$SERVER_CONF")"
+    else
+        printf 'unit           %s (%s)\n' "$SERVER_UNIT" "$active"
+        printf 'listening      %s/%s\n' "$port" "$proto"
+        printf 'connected      %s\n' "$count"
+        printf 'CRL next update %s\n' "${crl:-unknown}"
+        printf 'config         %s\n' "$SERVER_CONF"
+    fi
+}
+
+# Cheap structural check. It is not a validator - the restart is - it only
+# stops an obviously truncated or unrelated file from reaching the daemon.
+config_sane() {
+    local file=$1 key
+    [ -s "$file" ] || { echo "candidate config is empty" >&2; return 1; }
+    for key in port proto dev ca cert key; do
+        grep -qE "^[[:space:]]*${key}[[:space:]]" "$file" ||
+            { echo "candidate config has no '$key' directive" >&2; return 1; }
+    done
+}
+
+# apply_config <candidate> [extra-file-to-roll-back ...]
+# Every extra file must already have a matching .bak-<stamp> beside it.
+apply_config() {
+    local candidate=$1 stamp backup rc
+    shift
+    config_sane "$candidate" || return 1
+    stamp=$(timestamp)
+    backup=$SERVER_CONF.bak-$stamp
+    cp -a "$SERVER_CONF" "$backup" || {
+        echo "could not back up $SERVER_CONF" >&2; return 1; }
+    install -m 644 "$candidate" "$SERVER_CONF" || {
+        echo "could not install candidate config" >&2; return 1; }
+
+    systemctl restart "$SERVER_UNIT"
+    rc=$?
+    if [ "$rc" -eq 0 ] && unit_active "$SERVER_UNIT"; then
+        echo "applied; backup kept at $backup"
+        return 0
+    fi
+
+    echo "ROLLED BACK: $SERVER_UNIT did not come up with the new config" >&2
+    cp -a "$backup" "$SERVER_CONF"
+    local f
+    for f in "$@"; do
+        [ -f "$f.rollback" ] && cp -a "$f.rollback" "$f"
+    done
+    systemctl restart "$SERVER_UNIT"
+    if unit_active "$SERVER_UNIT"; then
+        echo "the previous configuration is running again" >&2
+    else
+        echo "THE SERVER IS DOWN and the previous config did not restore it - " \
+             "check 'systemctl status $SERVER_UNIT' now" >&2
+    fi
+    return 1
+}
+
+cmd_set_port() {
+    local port=$1 proto=${2:-} cur_port cur_proto tmp
+    case "$port" in
+        ''|*[!0-9]*) echo "port must be a number" >&2; return 1 ;;
+    esac
+    if [ "$port" -lt 1 ] || [ "$port" -gt 65535 ]; then
+        echo "port must be between 1 and 65535" >&2
+        return 1
+    fi
+    cur_port=$(conf_value port)
+    cur_proto=$(conf_value proto)
+    [ -n "$proto" ] || proto=$cur_proto
+    case "$proto" in
+        udp|tcp) ;;
+        *) echo "protocol must be udp or tcp" >&2; return 1 ;;
+    esac
+    if [ "$port" = "$cur_port" ] && [ "$proto" = "$cur_proto" ]; then
+        echo "already listening on $cur_port/$cur_proto - nothing to do"
+        return 0
+    fi
+
+    tmp=$(mktemp) || return 1
+    sed -e "s/^[[:space:]]*port[[:space:]].*/port $port/" \
+        -e "s/^[[:space:]]*proto[[:space:]].*/proto $proto/" \
+        "$SERVER_CONF" > "$tmp"
+
+    # The UPnP mapping is updated first and rolled back by apply_config if the
+    # server refuses the new config, so the two can never disagree.
+    if [ -f "$UPNP_DEFAULTS" ]; then
+        cp -a "$UPNP_DEFAULTS" "$UPNP_DEFAULTS.rollback"
+        cp -a "$UPNP_DEFAULTS" "$UPNP_DEFAULTS.bak-$(timestamp)"
+        sed -i -e "s/^PORT=.*/PORT=$port/" \
+               -e "s/^PROTO=.*/PROTO=$(printf '%s' "$proto" | tr '[:lower:]' '[:upper:]')/" \
+               "$UPNP_DEFAULTS"
+    fi
+
+    if ! apply_config "$tmp" "$UPNP_DEFAULTS"; then
+        rm -f "$tmp" "$UPNP_DEFAULTS.rollback"
+        return 1
+    fi
+    rm -f "$tmp" "$UPNP_DEFAULTS.rollback"
+
+    # Existing profiles still name the old port; without this every client
+    # keeps a config that connects to nothing.
+    if [ -x "$VPN_CLIENT" ]; then
+        "$VPN_CLIENT" regen --all || {
+            echo "server is on $port/$proto but profile regeneration failed - " \
+                 "run '$VPN_CLIENT regen --all' before handing out any profile" >&2
+            return 1
+        }
+    else
+        echo "WARNING: $VPN_CLIENT not found; existing profiles still name" \
+             "$cur_port and will not connect" >&2
+    fi
+
+    # PartOf ties the mapping to the server unit, but restarting it explicitly
+    # means the new port is requested from the router now rather than at the
+    # next timer tick.
+    systemctl restart "$UPNP_UNIT" 2>/dev/null ||
+        echo "note: could not restart $UPNP_UNIT; the timer will re-request the mapping" >&2
+
+    echo "listening on $port/$proto; profiles regenerated"
+}
+
+case "${1:-status}" in
+status)
+    cmd_status "${2:-}"
+    ;;
+show-config)
+    [ -r "$SERVER_CONF" ] || { echo "cannot read $SERVER_CONF" >&2; exit 1; }
+    cat "$SERVER_CONF"
+    ;;
+apply-config)
+    need_root
+    file=${2:?usage: vpn-server apply-config <file>}
+    [ -r "$file" ] || { echo "cannot read $file" >&2; exit 1; }
+    apply_config "$file" || exit 1
+    ;;
+set-port)
+    need_root
+    port=${2:?usage: vpn-server set-port <port> [udp|tcp]}
+    cmd_set_port "$port" "${3:-}" || exit 1
+    ;;
+*)
+    echo "usage: vpn-server {status [--json]|show-config|apply-config <file>|set-port <port> [udp|tcp]}" >&2
+    exit 2
+    ;;
+esac

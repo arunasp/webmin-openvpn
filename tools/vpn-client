@@ -1,0 +1,304 @@
+#!/bin/bash
+# Manage OpenVPN client certificates and profiles.
+#
+#   vpn-client list [--json]        what exists, and its state
+#   vpn-client add <name>           new client + ready-to-use .ovpn profile
+#   vpn-client revoke <name>        revoke, refresh the CRL, remove the profile
+#   vpn-client show <name>          print the profile (for copying out)
+#   vpn-client regen <name|--all>   rebuild profiles from the existing certs
+#
+# WHY THIS RATHER THAN THE WEBMIN OPENVPN MODULE: the third-party modules are
+# built around easy-rsa 2.x and a different directory layout. This PKI is
+# easy-rsa 3 with EC keys, so those modules would either not see the certs or
+# rewrite them into a form the server rejects. The openvpn-server module wraps
+# this script and reimplements none of it, so every path the UI can take is a
+# path that can also be taken, and tested, from the shell.
+#
+# The remote port and protocol are read from server.conf rather than hardcoded.
+# A profile naming a port the server is not listening on fails silently on
+# someone's phone; regen exists to reissue profiles after such a change.
+#
+# Paths are overridable so the suite can run this code against a fixture PKI.
+# Only add, revoke and regen require root: reading is governed by the
+# filesystem permissions on the PKI itself, which is where that gate belongs.
+#
+# SITE IDENTITY LIVES IN /etc/default/vpn-tools, NOT HERE. This repository is
+# public; the defaults below are placeholders. See DEPLOY.md.
+set -uo pipefail
+
+SITE_CONF=${SITE_CONF:-/etc/default/vpn-tools}
+# shellcheck source=/dev/null
+[ -r "$SITE_CONF" ] && . "$SITE_CONF"
+
+EASYRSA_DIR=${EASYRSA_DIR:-/etc/openvpn/easyrsa}
+CLIENT_DIR=${CLIENT_DIR:-/etc/openvpn/clients}
+SERVER_DIR=${SERVER_DIR:-/etc/openvpn/server}
+STATUS_FILE=${STATUS_FILE:-/var/log/openvpn/status.log}
+SERVER_UNIT=${SERVER_UNIT:-openvpn-server@server}
+REMOTE_HOST=${REMOTE_HOST:-vpn.example.com}
+REMOTE_PORT=${REMOTE_PORT:-1194}
+REMOTE_PROTO=${REMOTE_PROTO:-udp}
+
+server_conf=$SERVER_DIR/server.conf
+if [ -r "$server_conf" ]; then
+    conf_port=$(awk '$1 == "port" { p = $2 } END { print p }' "$server_conf")
+    conf_proto=$(awk '$1 == "proto" { p = $2 } END { print p }' "$server_conf")
+    [ -n "$conf_port" ] && REMOTE_PORT=$conf_port
+    [ -n "$conf_proto" ] && REMOTE_PROTO=$conf_proto
+    # The server's own certificate appears in index.txt beside the clients.
+    # Derive its name from the config rather than hardcoding one, so this is
+    # correct on any site and names none.
+    cert_path=$(awk '$1 == "cert" { c = $2 } END { print c }' "$server_conf")
+    cert_base=${cert_path##*/}
+    SERVER_CN=${SERVER_CN:-${cert_base%.crt}}
+fi
+SERVER_CN=${SERVER_CN:-server}
+
+need_root() {
+    [ "$(id -u)" -eq 0 ] || { echo "must run as root" >&2; exit 1; }
+}
+
+valid_name() {
+    case "${1:-}" in
+        ""|*[!a-zA-Z0-9_-]*) return 1 ;;
+        *) return 0 ;;
+    esac
+}
+
+# What the server actually pushes, so the note at the top of a profile stays
+# true after a routing change instead of describing what used to be pushed.
+tunnel_note() {
+    local conf=$SERVER_DIR/server.conf routes
+    [ -r "$conf" ] || { echo "Routes are decided by the server."; return; }
+    if grep -qE '^[[:space:]]*push[[:space:]]+"redirect-gateway' "$conf"; then
+        echo "FULL TUNNEL: all traffic from this device goes through the VPN."
+        return
+    fi
+    routes=$(sed -n 's|^[[:space:]]*push[[:space:]]*"route \([0-9.]*\) \([0-9.]*\)".*|\1/\2|p' \
+             "$conf" | tr '\n' ' ')
+    routes=${routes% }
+    if [ -n "$routes" ]; then
+        echo "SPLIT TUNNEL: only traffic for $routes goes through the VPN." \
+             "Ordinary internet traffic is untouched, so this is safe to leave" \
+             "connected on a phone."
+    else
+        echo "Routes are decided by the server."
+    fi
+}
+
+# The whole profile: a single file a device can import unaided. The private
+# key is in it, which is why callers write it 600 and the UI warns.
+profile() {
+    local name=$1
+    cd "$EASYRSA_DIR" || return 1
+    cat <<EOF
+# OpenVPN profile for $name
+#
+# $(tunnel_note)
+client
+dev tun
+proto $REMOTE_PROTO
+remote $REMOTE_HOST $REMOTE_PORT
+resolv-retry infinite
+nobind
+persist-key
+persist-tun
+remote-cert-tls server
+data-ciphers AES-256-GCM:CHACHA20-POLY1305
+auth SHA512
+tls-version-min 1.2
+verb 3
+EOF
+    echo "<ca>" && cat pki/ca.crt && echo "</ca>" || return 1
+    echo "<cert>" && openssl x509 -in "pki/issued/$name.crt" && echo "</cert>" || return 1
+    echo "<key>" && cat "pki/private/$name.key" && echo "</key>" || return 1
+    echo "<tls-crypt>" && cat "$SERVER_DIR/tls-crypt.key" && echo "</tls-crypt>" || return 1
+}
+
+# Write via a temporary file: a half-written profile that still parses is
+# worse than no profile at all.
+write_profile() {
+    local name=$1 tmp
+    mkdir -p "$CLIENT_DIR" && chmod 700 "$CLIENT_DIR" || return 1
+    tmp=$(mktemp "$CLIENT_DIR/.$name.XXXXXX") || return 1
+    chmod 600 "$tmp"
+    if profile "$name" > "$tmp"; then
+        mv "$tmp" "$CLIENT_DIR/$name.ovpn"
+    else
+        rm -f "$tmp"
+        return 1
+    fi
+}
+
+# One record per client as name|state|expiry|profile, so the table and the
+# JSON are two renderings of a single scan rather than two parsers.
+scan_clients() {
+    local line st cn state exp p
+    cd "$EASYRSA_DIR" || return 1
+    while IFS= read -r line; do
+        st=${line:0:1}
+        cn=$(printf '%s\n' "$line" | sed -n 's|.*/CN=\([^/]*\).*|\1|p')
+        [ -z "$cn" ] && continue
+        [ "$cn" = "$SERVER_CN" ] && continue
+        case "$st" in
+            V) state=valid ;;
+            R) state=REVOKED ;;
+            E) state=expired ;;
+            *) state=$st ;;
+        esac
+        exp=$(openssl x509 -in "pki/issued/$cn.crt" -noout -enddate 2>/dev/null |
+              sed 's/notAfter=//')
+        [ -f "$CLIENT_DIR/$cn.ovpn" ] && p=yes || p=no
+        printf '%s|%s|%s|%s\n' "$cn" "$state" "${exp:--}" "$p"
+    done < pki/index.txt
+}
+
+# CLIENT_LIST in a --status-version 2 file:
+# name, real address, virtual address, ipv6, bytes rx, bytes tx, since, ...
+scan_connected() {
+    [ -f "$STATUS_FILE" ] || return 0
+    awk -F, '/^CLIENT_LIST/ { printf "%s|%s|%s|%s\n", $2, $3, $4, $9 }' \
+        "$STATUS_FILE"
+}
+
+connected_field() {
+    local name=$1 field=$2
+    scan_connected |
+        awk -F'|' -v n="$name" -v f="$field" '$1 == n { print $f; exit }'
+}
+
+json_string() {
+    if [ -z "${1:-}" ]; then
+        printf 'null'
+    else
+        printf '"%s"' "$(printf '%s' "$1" | sed 's/\\/\\\\/g; s/"/\\"/g')"
+    fi
+}
+
+json_bool() {
+    [ -n "${1:-}" ] && printf 'true' || printf 'false'
+}
+
+list_json() {
+    local first=1 name state exp p real virt since
+    printf '{"server":{"host":%s,"port":%s,"proto":%s,"status_file":%s},"clients":[' \
+        "$(json_string "$REMOTE_HOST")" \
+        "$(json_string "$REMOTE_PORT")" \
+        "$(json_string "$REMOTE_PROTO")" \
+        "$(json_bool "$([ -f "$STATUS_FILE" ] && echo x)")"
+    while IFS='|' read -r name state exp p; do
+        [ -z "$name" ] && continue
+        real=$(connected_field "$name" 2)
+        virt=$(connected_field "$name" 3)
+        since=$(connected_field "$name" 4)
+        [ "$first" -eq 1 ] || printf ','
+        first=0
+        printf '{"name":%s,"state":%s,"expires":%s,"profile":%s,' \
+            "$(json_string "$name")" "$(json_string "$state")" \
+            "$(json_string "$exp")" \
+            "$(json_bool "$([ "$p" = yes ] && echo x)")"
+        printf '"connected":%s,"real_address":%s,"virtual_address":%s,"since":%s}' \
+            "$(json_bool "$real")" "$(json_string "$real")" \
+            "$(json_string "$virt")" "$(json_string "$since")"
+    done < <(scan_clients)
+    printf ']}\n'
+}
+
+list_table() {
+    local name state exp p
+    printf "%-18s %-10s %-24s %s\n" NAME STATE EXPIRES PROFILE
+    printf "%-18s %-10s %-24s %s\n" \
+        ------------------ ---------- ------------------------ -------
+    while IFS='|' read -r name state exp p; do
+        printf "%-18s %-10s %-24s %s\n" "$name" "$state" "$exp" "$p"
+    done < <(scan_clients)
+    echo
+    echo "connected now:"
+    if [ ! -f "$STATUS_FILE" ]; then
+        echo "  (no status file - is the server running?)"
+    elif [ -z "$(scan_connected)" ]; then
+        echo "  (none)"
+    else
+        scan_connected |
+            awk -F'|' '{ printf "  %-18s %-16s since %s\n", $1, $3, $4 }'
+    fi
+}
+
+cmd_regen() {
+    local target=$1 name state _exp _p count=0
+    while IFS='|' read -r name state _exp _p; do
+        [ "$target" = "--all" ] || [ "$target" = "$name" ] || continue
+        if [ "$state" != valid ]; then
+            echo "skipping $name ($state)" >&2
+            continue
+        fi
+        write_profile "$name" || { echo "failed to regenerate $name" >&2; return 1; }
+        echo "regenerated $CLIENT_DIR/$name.ovpn ($REMOTE_PROTO $REMOTE_HOST:$REMOTE_PORT)"
+        count=$((count + 1))
+    done < <(scan_clients)
+    [ "$count" -gt 0 ] || { echo "nothing regenerated" >&2; return 1; }
+}
+
+case "${1:-list}" in
+list)
+    if [ "${2:-}" = "--json" ]; then
+        list_json
+    else
+        list_table
+    fi
+    ;;
+add)
+    need_root
+    name=${2:?usage: vpn-client add <name>}
+    valid_name "$name" || { echo "name: letters, digits, - and _ only" >&2; exit 1; }
+    cd "$EASYRSA_DIR" || exit 1
+    if grep -q "/CN=$name\$" pki/index.txt 2>/dev/null; then
+        echo "'$name' already exists - revoke it first, or pick another name" >&2
+        exit 1
+    fi
+    ./easyrsa --batch build-client-full "$name" nopass >/dev/null 2>&1 ||
+        { echo "certificate generation failed" >&2; exit 1; }
+    write_profile "$name" || { echo "profile generation failed" >&2; exit 1; }
+    echo "created $name"
+    echo "  certificate expires: $(openssl x509 -in "pki/issued/$name.crt" \
+        -noout -enddate | sed 's/notAfter=//')"
+    echo "  profile:             $CLIENT_DIR/$name.ovpn"
+    echo
+    echo "Give the .ovpn file to the device. It contains the private key, so send"
+    echo "it over something private - not email or a chat app."
+    ;;
+revoke)
+    need_root
+    name=${2:?usage: vpn-client revoke <name>}
+    valid_name "$name" || { echo "name: letters, digits, - and _ only" >&2; exit 1; }
+    cd "$EASYRSA_DIR" || exit 1
+    grep -q "/CN=$name\$" pki/index.txt || { echo "no such client: $name" >&2; exit 1; }
+    ./easyrsa --batch revoke "$name" >/dev/null 2>&1 ||
+        { echo "revoke failed" >&2; exit 1; }
+    ./easyrsa --batch gen-crl >/dev/null 2>&1
+    install -m 644 pki/crl.pem "$SERVER_DIR/pki/crl.pem"
+    rm -f "$CLIENT_DIR/$name.ovpn"
+    # openvpn-server@.service has no ExecReload, so this is a full RESTART: it
+    # drops every connected client, not only the revoked one. Without it the
+    # revoked client keeps its session until it next reconnects.
+    systemctl reload-or-restart "$SERVER_UNIT"
+    echo "revoked $name; CRL refreshed, server restarted (all sessions dropped)"
+    ;;
+show)
+    name=${2:?usage: vpn-client show <name>}
+    valid_name "$name" || { echo "name: letters, digits, - and _ only" >&2; exit 1; }
+    [ -f "$CLIENT_DIR/$name.ovpn" ] || { echo "no profile for $name" >&2; exit 1; }
+    cat "$CLIENT_DIR/$name.ovpn"
+    ;;
+regen)
+    need_root
+    target=${2:?usage: vpn-client regen <name>|--all}
+    [ "$target" = "--all" ] || valid_name "$target" ||
+        { echo "name: letters, digits, - and _ only" >&2; exit 1; }
+    cmd_regen "$target"
+    ;;
+*)
+    echo "usage: vpn-client {list [--json]|add <name>|revoke <name>|show <name>|regen <name>|--all}" >&2
+    exit 2
+    ;;
+esac

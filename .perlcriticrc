@@ -1,0 +1,14 @@
+# Perl::Critic configuration for the openvpn-server module.
+#
+# severity 4 rather than 1: the strictest levels enforce Perl Best Practices
+# conventions that a Webmin module cannot follow anyway, and a linter whose
+# output is mostly noise gets silenced instead of read. Tighten it once the
+# module is written and the real findings are visible.
+severity = 4
+verbose = 8
+
+# Every Webmin module loads its library with require './name-lib.pl', which
+# is exactly what this policy forbids. The policy is right in general and
+# wrong here: the path is relative to the module directory Webmin chdirs
+# into, and there is no bareword form of it.
+[-Modules::RequireBarewordIncludes]

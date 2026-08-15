@@ -1,0 +1,3 @@
+vpn_client=/usr/local/sbin/vpn-client
+vpn_server=/usr/local/sbin/vpn-server
+clients_dir=/etc/openvpn/clients

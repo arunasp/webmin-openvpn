@@ -1,0 +1,6 @@
+name=OpenVPN
+desc=OpenVPN
+category=servers
+version=1.0
+depends=1.000
+os_support=*-linux

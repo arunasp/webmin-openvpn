@@ -1,0 +1,14 @@
+build/
+
+# Cached CPAN install and its download cache, created by `make perldeps`.
+local/
+.cpanm/
+.perldeps
+
+# Never, under any circumstance, in a public repository.
+*.key
+*.crt
+*.pem
+*.ovpn
+*.p12
+*.pfx
