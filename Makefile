@@ -51,7 +51,7 @@ EASYRSA_REPO   = https://github.com/OpenVPN/easy-rsa.git
 EASYRSA_CLONE  = .easyrsa/easy-rsa
 EASYRSA_REAL   = $(EASYRSA_CLONE)/easyrsa3/easyrsa
 
-.PHONY: perldeps easyrsa webmin apicheck lint scan test build verify e2e e2e-matrix all clean distclean
+.PHONY: perldeps easyrsa webmin apicheck lint scan test build verify reproducible e2e e2e-matrix all clean distclean
 
 # Sentinel, deliberately NOT in .PHONY: a phony listing would reinstall 37
 # distributions on every invocation.
@@ -106,15 +106,38 @@ scan: ## Fail if site identity or key material reached the tree
 test: ## Run the tools against a fixture site with systemctl and id mocked
 	bash tests/run.sh
 
-build: ## Package the module as a Webmin .wbm.gz
+# Reproducible by construction: sorted entries, no owner names, and every
+# mtime pinned to the last commit. Two builds of the same tree then produce
+# byte-identical packages, which is what makes a checksum worth publishing -
+# and what lets verify prove the artifact matches the source it claims.
+SOURCE_DATE_EPOCH ?= $(shell git log -1 --format=%ct 2>/dev/null || echo 0)
+
+build: ## Package the module as a reproducible Webmin .wbm.gz
 	@test -d $(MODULE) || { echo "$(MODULE)/ does not exist"; exit 1; }
 	@mkdir -p $(BUILD)
 	tar --exclude='*.bak-*' --exclude='.*' \
-	  -czf $(BUILD)/$(MODULE).wbm.gz $(MODULE)
+	  --sort=name --owner=0 --group=0 --numeric-owner \
+	  --mtime=@$(SOURCE_DATE_EPOCH) \
+	  --format=gnu -cf - $(MODULE) | gzip -n > $(BUILD)/$(MODULE).wbm.gz
+	@cd $(BUILD) && sha256sum $(MODULE).wbm.gz > $(MODULE).wbm.gz.sha256
 	@ls -l $(BUILD)/$(MODULE).wbm.gz
+	@cat $(BUILD)/$(MODULE).wbm.gz.sha256
 
-verify: build ## Check the package a browser would receive
-	MODULE=$(MODULE) bash tests/verify-package.sh $(BUILD)/$(MODULE).wbm.gz
+verify: build ## Check the package against what Webmin's installer requires
+	MODULE=$(MODULE) WEBMIN_REF=$(WEBMIN_REF) \
+	  bash tests/verify-package.sh $(BUILD)/$(MODULE).wbm.gz
+	@$(MAKE) --no-print-directory reproducible
+
+# A checksum nobody can reproduce is a number, not a guarantee.
+reproducible: ## Rebuild and confirm the package is byte-identical
+	@cp $(BUILD)/$(MODULE).wbm.gz $(BUILD)/.first.wbm.gz
+	@$(MAKE) --no-print-directory build >/dev/null
+	@if cmp -s $(BUILD)/.first.wbm.gz $(BUILD)/$(MODULE).wbm.gz; then \
+	  echo "[PASS] the package rebuilds byte-identically"; \
+	else \
+	  echo "[FAIL] the package is not reproducible"; exit 1; \
+	fi
+	@rm -f $(BUILD)/.first.wbm.gz
 
 e2e: verify apicheck $(EASYRSA_REAL) ## Real easy-rsa and real Webmin (needs network)
 	git -C $(EASYRSA_CLONE) -c advice.detachedHead=false checkout -q $(EASYRSA_REF)
