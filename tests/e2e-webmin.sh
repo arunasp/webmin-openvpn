@@ -1,11 +1,11 @@
 #!/bin/bash
-# Install the built package into a real Webmin and exercise the module through
+# Install the built package into an installed Webmin and exercise the module through
 # HTTP: the client list, the download page, the download itself, and the
 # refusals.
 #
 # Every other stage stops at the boundary of Webmin. perl -cw proves the CGIs
 # compile, apicheck proves the functions they call exist, and the compile-time
-# stub in tests/stubs deliberately implements nothing - so none of them can
+# stub in tests/stubs implements nothing at all - so none of them can
 # tell whether a page renders. Running the module by hand for the first time
 # found a malformed JSON that broke the server panel whenever nobody was
 # connected; this stage exists so the next one of those is found by CI.
@@ -67,7 +67,7 @@ cp "$WEBMIN_ROOT/$module/config" "$tmp/etc/$module/config"
 # page answering "user root is not allowed to use" - which is what the first
 # CI run of this stage did.
 # If the source configuration already grants the module, the copy inherits
-# that and the grant below is never exercised - which is precisely how a
+# that and the grant below is never exercised - which is how a
 # broken grant survived every local run while failing in CI, where the
 # install is always fresh. Say so rather than reporting a pass that covers
 # less than it appears to.
@@ -76,7 +76,7 @@ if grep -q "^root:.*$module" "$WEBMIN_ETC/webmin.acl" 2>/dev/null; then
     echo "       exercise the grant step. A fresh install does."
 fi
 # If the source configuration already grants the module, the copy inherits
-# that and the grant below is never exercised - which is precisely how a
+# that and the grant below is never exercised - which is how a
 # broken grant survived every local run while failing in CI, where the
 # install is always fresh. Say so rather than reporting a pass that covers
 # less than it appears to.

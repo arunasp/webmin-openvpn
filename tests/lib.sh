@@ -4,8 +4,8 @@
 # Vendored rather than sourced from anywhere else: the suite has to run inside
 # a CI worker that mounts this repository and nothing else.
 #
-# The mocking exists because two of the dependencies cannot be exercised for
-# real here. systemctl needs an init system, and the root check needs a uid
+# The mocking exists because two of the dependencies cannot be exercised
+# here at all. systemctl needs an init system, and the root check needs a uid
 # an unprivileged CI runner does not have. Faking those on PATH is what lets
 # the suite produce the same result whether or not it runs as root.
 
@@ -77,8 +77,8 @@ assert_file_absent() {
     fi
 }
 
-# mock_bin <dir> <name> <body> -- a fake binary that behaves like the real
-# tool in one specific scenario. A fake that always succeeds tests nothing.
+# mock_bin <dir> <name> <body> -- a fake binary that behaves like the tool it
+# replaces in one specific scenario. A fake that always succeeds tests nothing.
 mock_bin() {
     local dir=$1 name=$2 body=$3
     mkdir -p "$dir"

@@ -191,7 +191,7 @@ fi
 # the connected client's address into that form - the list is driven by the
 # PKI, so this has to be a client that actually holds a certificate.
 sed -i 's/,203.0.113.9:/,::ffff:203.0.113.9:/' "$root/log/status.log"
-# The real peer address reaches the interface through --json; the table shows
+# The peer address reaches the interface through --json; the table shows
 # the tunnel address, so the assertion belongs where the value is used.
 run_client "$root" list --json
 assert_contains "an IPv4-mapped peer reaches the module as a plain address" \
@@ -436,10 +436,10 @@ assert_file_contains "init named the curve" \
     "$root/easyrsa-env.log" "curve=secp384r1"
 assert_not_contains "no certificate was built with the default algorithm" \
     "$(cat "$root/easyrsa-env.log")" "algo=unset"
-assert_eq "the CA key really is EC" "id-ecPublicKey" \
+assert_eq "the CA key is EC" "id-ecPublicKey" \
     "$(openssl x509 -in "$root/easyrsa/pki/ca.crt" -noout -text |
        sed -n 's/.*Public Key Algorithm: //p' | head -1)"
-assert_eq "the server key really is EC" "id-ecPublicKey" \
+assert_eq "the server key is EC" "id-ecPublicKey" \
     "$(openssl x509 -in "$root/server/pki/server.crt" -noout -text |
        sed -n 's/.*Public Key Algorithm: //p' | head -1)"
 

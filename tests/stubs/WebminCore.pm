@@ -6,11 +6,11 @@ package WebminCore;
 # anywhere else - which would mean the only place to find a typo is a browser
 # on a production server.
 #
-# THIS IS NOT USED AT RUNTIME and deliberately implements nothing. Webmin
+# THIS IS NOT USED AT RUNTIME and implements nothing at all. Webmin
 # exports its ui_* helpers into the caller; module code calls them in the
-# &name(...) form, which compiles without a declaration and resolves for real
+# &name(...) form, which compiles without a declaration and resolves
 # when Webmin loads the module. So an empty import is enough to compile
-# against, and cannot drift from the real API by pretending to be it.
+# against, and cannot drift from Webmin's API by pretending to be it.
 #
 # What this does NOT prove: that any ui_* call is correct, that its arguments
 # are right, or that the page renders. Only Webmin itself answers that, in a

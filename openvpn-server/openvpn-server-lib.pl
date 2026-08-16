@@ -34,7 +34,7 @@ our (%text, %config, %in);
 # run_tool(@argv) -> hashref { status, out, err }
 #
 # stderr is captured separately rather than merged: the tools put their
-# diagnostics there, and showing the operator the real message beats a
+# diagnostics there, and showing the operator the underlying message beats a
 # generic "command failed".
 sub run_tool
 {

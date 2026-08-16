@@ -17,8 +17,8 @@ that can only ever be run by hand would be a pretence.
 
 ## Site identity
 
-**Nothing in this repository names a real host, network or client.** The
-defaults in `tools/vpn-client` and `tools/vpn-server` are placeholders. Real
+**Nothing in this repository names a live host, network or client.** The
+defaults in `tools/vpn-client` and `tools/vpn-server` are placeholders. Site
 values live in one file on the target server:
 
     /etc/default/vpn-tools     root:root, 0600
@@ -77,8 +77,8 @@ sudo TAG=v1.0.42 sh install.sh
 ```
 
 Verify before running, rather than piping a URL into a shell. The installer
-is deliberately narrow: it installs files and nothing else - no certificate
-authority, no server configuration, no decisions of its own.
+installs files and stops there. It creates no certificate authority, writes
+no server configuration, and makes no decisions of its own.
 
 ### The package
 
@@ -115,7 +115,7 @@ program.
     install -o root -g root -m 0755 vpn-client /usr/local/sbin/vpn-client
     install -o root -g root -m 0755 vpn-server /usr/local/sbin/vpn-server
 
-Then confirm against the real installation, in this order, before trusting
+Then confirm against the installed site, in this order, before trusting
 anything:
 
     vpn-server status          # unit state, port, connections

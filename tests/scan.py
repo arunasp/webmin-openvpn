@@ -2,7 +2,7 @@
 """Refuse to let site identity or key material into a public repository.
 
 This scans for *classes* of leak rather than a list of the specific values
-being kept out: a denylist of real hostnames would have to contain those
+being kept out: a denylist of live hostnames would have to contain those
 hostnames, which is the thing it is supposed to prevent. So the rules are
 structural - a fully qualified domain name that is not a documentation
 domain, an IPv4 address outside the declared set, a Windows drive path, a
@@ -43,12 +43,12 @@ ALLOWED_HOSTS = {
 
 # Addresses this repository is allowed to write down. Everything else is a
 # finding, including private addresses: "it is only an internal address" is
-# precisely how a real internal address ends up published, and RFC 1918 space
-# describes the topology of a specific site just as surely as a public one.
+# how an internal address ends up published, and RFC 1918 space
+# describes the topology of a specific site as clearly as a public one.
 #
 # The two private entries are the fixture's own LAN and the tunnel subnet in
 # its server.conf. Adding a third means editing this list, which is the point
-# - the friction is what makes someone notice they are writing a real address.
+# - the friction is what makes someone notice they are writing a site address.
 ALLOWED_NETWORKS = [
     ipaddress.ip_network("127.0.0.0/8"),        # loopback
     ipaddress.ip_network("169.254.0.0/16"),     # link-local
@@ -59,18 +59,18 @@ ALLOWED_NETWORKS = [
     ipaddress.ip_network("10.8.0.0/24"),        # the fixture's tunnel subnet
 ]
 
-# Netmasks are not addresses. Prefixes shorter than /8 are deliberately
-# excluded: 128.0.0.0 is far more likely to be an address than a mask.
+# Netmasks are not addresses. Prefixes shorter than /8 are left out:
+# 128.0.0.0 is far more likely to be an address than a mask.
 NETMASKS = {ipaddress.ip_address("0.0.0.0")}
 NETMASKS |= {
     ipaddress.ip_network(f"0.0.0.0/{bits}").netmask for bits in range(8, 33)
 }
 
-# A dotted name only counts as a hostname when its last label is a real
-# public suffix. .sh, .pl and .info are deliberately absent: they are real
+# A dotted name only counts as a hostname when its last label is a known
+# public suffix. .sh, .pl and .info are missing from the list: they are valid
 # TLDs but they collide with filenames this project cannot rename - run.sh,
 # a Perl library, and Webmin's own module.info and config.info. A rule that
-# fires on those is a rule that gets skipped. The cost is real and worth
+# fires on those is a rule that gets skipped. The cost is accepted and worth
 # naming: a leaked host under .info or .sh would pass this check.
 PUBLIC_TLDS = {
     "com", "net", "org", "io", "dev", "app", "co", "uk", "eu", "lt", "lv",
@@ -102,7 +102,7 @@ def address_finding(text):
         if addr in network:
             return None
     if addr.is_private:
-        return "private address (real topology?)"
+        return "private address (site topology?)"
     return "routable IP"
 
 
@@ -171,7 +171,7 @@ def main():
         return 1
 
     print("=== LEAK SCAN: clean ===")
-    print("no undeclared addresses, real hostnames, local paths"
+    print("no undeclared addresses, live hostnames, local paths"
           " or key material")
     return 0
 

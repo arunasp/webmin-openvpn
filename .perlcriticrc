@@ -3,7 +3,7 @@
 # severity 4 rather than 1: the strictest levels enforce Perl Best Practices
 # conventions that a Webmin module cannot follow anyway, and a linter whose
 # output is mostly noise gets silenced instead of read. Tighten it once the
-# module is written and the real findings are visible.
+# module is written and the findings that matter stay visible.
 severity = 4
 verbose = 8
 

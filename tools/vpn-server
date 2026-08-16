@@ -126,7 +126,7 @@ cmd_status() {
 }
 
 # Cheap structural check. It is not a validator - the restart is - it only
-# stops an obviously truncated or unrelated file from reaching the daemon.
+# stops a truncated or unrelated file from reaching the daemon.
 config_sane() {
     local file=$1 key
     [ -s "$file" ] || { echo "candidate config is empty" >&2; return 1; }
@@ -416,7 +416,7 @@ cmd_init() {
         echo "a server already exists here" >&2
         echo "  config: $SERVER_CONF" >&2
         echo "  pki:    $EASYRSA_DIR/pki" >&2
-        echo "Remove them deliberately if you really mean to start over;" >&2
+        echo "Remove them by hand if you intend to start over;" >&2
         echo "every issued profile stops working when the CA changes." >&2
         return 1
     fi
@@ -439,7 +439,7 @@ cmd_init() {
     # This is not cosmetic. easy-rsa resolves its own support files relative to
     # the path it was invoked by, and vpn-client runs ./easyrsa from this
     # directory - so without the symlink a server built here could never issue
-    # a client, which is exactly what the end-to-end stage caught.
+    # a client, which is what the end-to-end stage caught.
     easyrsa_src=$(dirname "$easyrsa")
     ln -sfn "$easyrsa" "$EASYRSA_DIR/easyrsa"
     if [ -d "$easyrsa_src/x509-types" ]; then

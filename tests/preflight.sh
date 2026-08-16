@@ -4,7 +4,7 @@
 #
 # make scan checks the working tree. A push publishes every commit, and this
 # repository has already had to be rebuilt twice because a leak sat in history
-# while the tip was clean - first a real hostname, then a site codename in a
+# while the tip was clean - first a live hostname, then a site codename in a
 # module name. Rewriting is free only while nothing has been pushed, so this
 # is the last point at which either is cheap to fix.
 #

@@ -6,9 +6,9 @@ endif
 
 # Pipeline for the openvpn-server Webmin module and the shell tools it wraps.
 # make perldeps once, then make all. Run make e2e when a
-# change touches init, because only that stage sees the real easy-rsa.
+# change touches init, because only that stage runs easy-rsa itself.
 #
-# deploy is deliberately absent. Installing to /usr/share/webmin on a server
+# There is no deploy target. Installing to /usr/share/webmin on a server
 # needs credentials no CI runner has, so it is driven from outside and
 # recorded in DEPLOY.md rather than pretended at here.
 
@@ -43,7 +43,7 @@ CPANM      = .cpanm/cpanm
 # module can be checked anywhere but a host with Webmin installed.
 PERL_ENV   = PERL5LIB=$(CURDIR)/$(PERL_LIB):$(CURDIR)/tests/stubs
 
-# The real easy-rsa, from its own repository so the release tags are visible
+# easy-rsa itself, from its own repository so the release tags are visible
 # and e2e can run against more than one of them. Cached on the project tree
 # like every other dependency here.
 #
@@ -53,7 +53,7 @@ PERL_ENV   = PERL5LIB=$(CURDIR)/$(PERL_LIB):$(CURDIR)/tests/stubs
 # script lives under easyrsa3/, because the tarball is a built artifact and
 # this is the source.
 # Webmin itself, pinned to the version the target host runs. The compile-time
-# stub cannot tell a real ui_* function from a typo, so this is the only check
+# stub cannot tell a shipped ui_* function from a typo, so this is the only check
 # that catches a call that does not exist in the release it will run on.
 WEBMIN_REF    ?= 2.653
 WEBMIN_REPO    = https://github.com/webmin/webmin.git
@@ -64,16 +64,16 @@ EASYRSA_REF   ?= v3.1.7
 EASYRSA_REFS  ?= v3.1.7 v3.2.6
 EASYRSA_REPO   = https://github.com/OpenVPN/easy-rsa.git
 EASYRSA_CLONE  = .easyrsa/easy-rsa
-EASYRSA_REAL   = $(EASYRSA_CLONE)/easyrsa3/easyrsa
+EASYRSA_SRC   = $(EASYRSA_CLONE)/easyrsa3/easyrsa
 
-.PHONY: perldeps easyrsa webmin apicheck lint scan test build deb dist verify reproducible preflight version e2e e2e-matrix e2e-tunnel e2e-webmin all clean distclean
+.PHONY: perldeps easyrsa webmin apicheck lint scan style test build deb dist verify reproducible preflight version e2e e2e-matrix e2e-tunnel e2e-webmin all clean distclean
 
 version: ## Print the release version this build would produce
 	@echo "release  $(RELEASE_VERSION)"
 	@echo "module   $(MODULE_VERSION)   (module.info; two parts, numeric)"
 	@echo "package  $(notdir $(PACKAGE))"
 
-# Sentinel, deliberately NOT in .PHONY: a phony listing would reinstall 37
+# Sentinel, kept out of .PHONY: a phony listing would reinstall 37
 # distributions on every invocation.
 .perldeps: cpanfile
 	@mkdir -p .cpanm
@@ -88,13 +88,13 @@ perldeps: .perldeps ## Install CPAN dependencies into ./local
 # The checked-out script is the target, so the clone happens once. Pinning is
 # by tag rather than checksum: a tag names a release the upstream project
 # published, and git verifies the objects it fetched.
-$(EASYRSA_REAL):
+$(EASYRSA_SRC):
 	@mkdir -p .easyrsa
 	git clone -q --filter=blob:none $(EASYRSA_REPO) $(EASYRSA_CLONE)
 	git -C $(EASYRSA_CLONE) -c advice.detachedHead=false checkout -q $(EASYRSA_REF)
 	@test -x $@ || { echo "$@ missing after checkout"; exit 1; }
 
-easyrsa: $(EASYRSA_REAL) ## Clone easy-rsa and check out EASYRSA_REF
+easyrsa: $(EASYRSA_SRC) ## Clone easy-rsa and check out EASYRSA_REF
 
 $(WEBMIN_REAL):
 	@mkdir -p .webmin
@@ -108,7 +108,7 @@ apicheck: $(WEBMIN_REAL) ## Check every Webmin function the module calls exists
 	git -C $(WEBMIN_CLONE) -c advice.detachedHead=false checkout -q $(WEBMIN_REF)
 	MODULE=$(MODULE) bash tests/webmin-api.sh $(WEBMIN_CLONE)
 
-lint: scan ## Leak scan, ShellCheck, and Perl compile and policy checks
+lint: scan style ## Leak scan, prose, ShellCheck, and Perl compile and policy checks
 	@test -n "$(TOOLS)" || { echo "no tools found to check"; exit 1; }
 	shellcheck --shell=bash $(TOOLS) $(SUITE)
 	@for f in $(PERLSRC); do echo "perl -cw $$f"; $(PERL_ENV) perl -cw "$$f" || exit 1; done
@@ -119,6 +119,11 @@ lint: scan ## Leak scan, ShellCheck, and Perl compile and policy checks
 	else \
 	  echo "perlcritic absent - run 'make perldeps'; compile check only this run"; \
 	fi
+
+# Filler words that keep coming back. Checked rather than remembered,
+# because remembering is what failed.
+style: ## Fail on filler words in tracked files
+	bash tests/style.sh
 
 scan: ## Fail if site identity or key material reached the tree
 	python3 tests/scan.py
@@ -209,31 +214,31 @@ reproducible: ## Rebuild and confirm the package is byte-identical
 	fi
 	@rm -f $(BUILD)/.first.wbm.gz
 
-e2e: verify apicheck $(EASYRSA_REAL) ## Real easy-rsa and real Webmin (needs network)
+e2e: verify apicheck $(EASYRSA_SRC) ## Against easy-rsa and Webmin (needs network)
 	git -C $(EASYRSA_CLONE) -c advice.detachedHead=false checkout -q $(EASYRSA_REF)
-	bash tests/e2e-real.sh $(EASYRSA_REAL)
+	bash tests/e2e-easyrsa.sh $(EASYRSA_SRC)
 
-# easy-rsa 3.0.x is deliberately absent from EASYRSA_REFS: it prompts for a
+# EASYRSA_REFS leaves out easy-rsa 3.0.x: it prompts for a
 # passphrase despite nopass, so it cannot be driven unattended at all. The
 # tools fail fast against it rather than hanging, which is the most that can
 # be done from this side.
-e2e-matrix: verify $(EASYRSA_REAL) ## Run e2e against every ref in EASYRSA_REFS
+e2e-matrix: verify $(EASYRSA_SRC) ## Run e2e against every ref in EASYRSA_REFS
 	@for ref in $(EASYRSA_REFS); do \
 	  echo "===== easy-rsa $$ref ====="; \
 	  git -C $(EASYRSA_CLONE) -c advice.detachedHead=false checkout -q "$$ref" || exit 1; \
-	  bash tests/e2e-real.sh $(EASYRSA_REAL) || exit 1; \
+	  bash tests/e2e-easyrsa.sh $(EASYRSA_SRC) || exit 1; \
 	done
 
-# Installs the built package into a real Webmin and drives the module over
+# Installs the built package into an installed Webmin and drives the module over
 # HTTP: the client list, the download page, the profile itself and the
 # refusals. Nothing else can tell whether a page renders - the compile-time
-# stub implements nothing on purpose - and the first hand run of this found
+# stub implements nothing - and the first hand run of this found
 # JSON that broke the server panel whenever nobody was connected.
 #
 # It installs into the shared module directory and needs root, so it belongs
 # in a container. The system configuration is left alone: /etc/webmin is
 # copied and miniserv runs against the copy on a spare port.
-e2e-webmin: ## Drive the module through a real Webmin, in a container
+e2e-webmin: ## Drive the module through Webmin, in a container
 	@command -v docker >/dev/null 2>&1 || { \
 	  echo "docker is required: this stage installs a module into the"; \
 	  echo "shared Webmin directory and needs root."; \
@@ -242,8 +247,8 @@ e2e-webmin: ## Drive the module through a real Webmin, in a container
 	docker build -q -f tests/docker/Dockerfile.webmin -t openvpn-server-webmin .
 	docker run --rm --ulimit nproc=8192:8192 openvpn-server-webmin
 
-# The only stage that proves the software does what it is for: a real server,
-# a real client, and a certificate that stops working when it is revoked.
+# The only stage that proves the software does what it is for: a server,
+# a client, and a certificate that stops working when it is revoked.
 # It needs a container, because a live tunnel wants a network namespace of its
 # own and root to configure an interface - neither of which belongs to a test
 # runner. Run it where a container engine exists.
@@ -254,7 +259,7 @@ e2e-webmin: ## Drive the module through a real Webmin, in a container
 # image rather than a resource limit. This applies to root as much as to any
 # other uid, so it is set regardless of who the container runs as.
 #
-# No --user here on purpose: neither container bind-mounts a host path, so
+# No --user here: neither container bind-mounts a host path, so
 # nothing is written outside it to be left root-owned, and both need root -
 # one for NET_ADMIN and a tun device, the other to install into Webmin.
 e2e-tunnel: ## Build a server and connect a client through it, in a container
@@ -269,8 +274,8 @@ e2e-tunnel: ## Build a server and connect a client through it, in a container
 	  --ulimit nproc=8192:8192 \
 	  openvpn-server-e2e
 
-# e2e is deliberately not in all: it downloads. Run it before trusting any
-# change to init, because the mocked suite cannot see what the real tool does.
+# e2e stays out of all: it downloads. Run it before trusting any
+# change to init, because the mocked suite cannot see what easy-rsa itself does.
 all: lint test verify ## Run every stage that needs no network
 
 clean: ## Remove build artifacts

@@ -1,9 +1,9 @@
 #!/bin/bash
-# Build a server with the tools, connect a real client through it, and prove
+# Build a server with the tools, connect a client through it, and prove
 # that revoking the client stops it connecting.
 #
 # Everything above this stage stops short of the thing the software is for.
-# The suite proves the tools produce the files they claim; e2e-real proves a
+# The suite proves the tools produce the files they claim; e2e-easyrsa proves a
 # genuine easy-rsa accepts what init asks of it; apicheck proves the module
 # calls functions that exist. None of them establish that a profile issued
 # here lets a client onto the network, or that a revoked one does not - and a
@@ -12,7 +12,7 @@
 #
 # Requirements: openvpn and easy-rsa installed, /dev/net/tun, and CAP_NET_ADMIN.
 # Nothing here is faked except systemctl, because no container has an init
-# system; the server is started directly and is a real daemon.
+# system; the server is started directly and is the openvpn daemon.
 set -uo pipefail
 
 here=$(cd "$(dirname "$0")" && pwd)
@@ -71,7 +71,7 @@ run_tool() {
 }
 
 # Start the server directly. The unit would normally do this, and there is no
-# init system here, but the daemon is the real one reading the real config.
+# init system here, but it is openvpn reading the generated config.
 start_server() {
     local waited=0
     # The generated config sets log-append, and that wins over anything given

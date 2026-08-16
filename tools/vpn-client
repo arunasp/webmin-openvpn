@@ -176,7 +176,7 @@ scan_clients() {
 }
 
 # CLIENT_LIST in a --status-version 2 file:
-# name, real address, virtual address, ipv6, bytes rx, bytes tx, since, ...
+# name, peer address, tunnel address, ipv6, bytes rx, bytes tx, since, ...
 scan_connected() {
     [ -f "$STATUS_FILE" ] || return 0
     # A dual-stacked listener reports IPv4 peers as ::ffff:203.0.113.9. That
@@ -210,7 +210,7 @@ json_bool() {
 }
 
 list_json() {
-    local first=1 name state exp p rev real virt since
+    local first=1 name state exp p rev peer virt since
     printf '{"server":{"host":%s,"port":%s,"proto":%s,"status_file":%s},"clients":[' \
         "$(json_string "$REMOTE_HOST")" \
         "$(json_string "$REMOTE_PORT")" \
@@ -218,7 +218,7 @@ list_json() {
         "$(json_bool "$([ -f "$STATUS_FILE" ] && echo x)")"
     while IFS='|' read -r name state exp p rev; do
         [ -z "$name" ] && continue
-        real=$(connected_field "$name" 2)
+        peer=$(connected_field "$name" 2)
         virt=$(connected_field "$name" 3)
         since=$(connected_field "$name" 4)
         [ "$first" -eq 1 ] || printf ','
@@ -228,7 +228,7 @@ list_json() {
             "$(json_string "$exp")" \
             "$(json_bool "$([ "$p" = yes ] && echo x)")"
         printf '"connected":%s,"real_address":%s,"virtual_address":%s,"since":%s,' \
-            "$(json_bool "$real")" "$(json_string "$real")" \
+            "$(json_bool "$peer")" "$(json_string "$peer")" \
             "$(json_string "$virt")" "$(json_string "$since")"
         printf '"revoked":%s}' "$(json_string "$([ "$rev" != "-" ] && echo "$rev")")"
     done < <(scan_clients)
