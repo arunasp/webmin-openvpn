@@ -5,9 +5,12 @@ name: CI
 # need: the first needs nothing, the second needs the network to fetch real
 # dependencies, and the last two need a container and a tun device.
 
+# Development branches. main is handled by release.yml, which runs the same
+# stages and then tags and publishes; running both on main would duplicate
+# every job.
 on:
   push:
-    branches: [main, master, 'refactor/**']
+    branches-ignore: [main]
   pull_request:
   workflow_dispatch:
 
@@ -43,7 +46,7 @@ jobs:
         run: make test
 
       - name: Build and verify the package
-        run: make verify
+        run: make verify BUILD_NUMBER=${{ github.run_number }}
 
       - name: Publish the package
         uses: actions/upload-artifact@v4

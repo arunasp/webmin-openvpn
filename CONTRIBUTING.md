@@ -112,6 +112,29 @@ matters of convention and review.
 `make preflight` extends the scan to every unpushed commit and to commit
 messages, because a push publishes history, not just the checkout.
 
+## Versions and releases
+
+`VERSION` holds `major.minor`. CI supplies the third component as the build
+number, so a release is `major.minor.build` and every build of `main` is
+distinguishable and monotonic.
+
+`module.info` cannot carry three parts. Webmin compares module versions
+numerically when deciding whether an update is newer, and Perl reads
+`1.0.7` as `1` - which makes `1.0.7 < 1.0.10` false. Every one of the 114
+modules shipped with Webmin 2.653 uses two parts. So `build` stamps
+`major.build` into a staged copy of `module.info`, leaving the source tree
+alone, and `verify` asserts both that the version has two parts and that it
+is the one the build intended.
+
+    make version                  # what this build would produce
+    make build BUILD_NUMBER=42    # package 1.0.42, module.info 1.42
+
+Development branches run `.github/workflows/ci.yml`. Merging to `main` runs
+`release.yml`, which repeats every stage and, only if all of them pass, tags
+`vMAJOR.MINOR.BUILD` and publishes the package and its checksum. Bump
+`VERSION` when the minor or major changes; the build number takes care of
+itself.
+
 ## Commits
 
 Describe the reasoning, not the diff: what was wrong, what changed, and why

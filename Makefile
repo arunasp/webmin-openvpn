@@ -13,15 +13,25 @@ endif
 # recorded in DEPLOY.md rather than pretended at here.
 
 MODULE   ?= openvpn-server
-# Read from module.info rather than repeated here: Webmin already treats that
-# file as the version of record, and a second copy is a second thing to
-# forget. The artifact carries it so a downloaded file says what it is.
-MODULE_VERSION = $(shell sed -n 's/^version=//p' $(MODULE)/module.info)
+
+# VERSION holds major.minor. The third component is the build number, supplied
+# by CI, so a release is major.minor.build and every build of the same source
+# is distinguishable.
+#
+# module.info cannot carry that. Webmin compares module versions NUMERICALLY
+# when deciding whether an update is newer, and Perl reads "1.0.7" as 1, which
+# makes 1.0.7 < 1.0.10 false. All 114 modules shipped with Webmin 2.653 use two
+# parts for exactly this reason. So the file gets major.build - two parts,
+# numeric and monotonic - while the release and the artifact carry all three.
+BASE_VERSION    = $(shell cat VERSION)
+BUILD_NUMBER   ?= 0
+RELEASE_VERSION = $(BASE_VERSION).$(BUILD_NUMBER)
+MODULE_VERSION  = $(word 1,$(subst ., ,$(BASE_VERSION))).$(BUILD_NUMBER)
 TOOLS     = $(wildcard tools/vpn-*)
 SUITE     = $(wildcard tests/*.sh)
 PERLSRC   = $(wildcard $(MODULE)/*.cgi) $(wildcard $(MODULE)/*.pl)
 BUILD    ?= build
-PACKAGE   = $(BUILD)/$(MODULE)-$(MODULE_VERSION).wbm.gz
+PACKAGE   = $(BUILD)/$(MODULE)-$(RELEASE_VERSION).wbm.gz
 
 # CPAN dependencies live on the project tree, not in the container and not in
 # the system perl: the worker is unprivileged and discarded after every call,
@@ -56,7 +66,12 @@ EASYRSA_REPO   = https://github.com/OpenVPN/easy-rsa.git
 EASYRSA_CLONE  = .easyrsa/easy-rsa
 EASYRSA_REAL   = $(EASYRSA_CLONE)/easyrsa3/easyrsa
 
-.PHONY: perldeps easyrsa webmin apicheck lint scan test build verify reproducible preflight e2e e2e-matrix e2e-tunnel e2e-webmin all clean distclean
+.PHONY: perldeps easyrsa webmin apicheck lint scan test build verify reproducible preflight version e2e e2e-matrix e2e-tunnel e2e-webmin all clean distclean
+
+version: ## Print the release version this build would produce
+	@echo "release  $(RELEASE_VERSION)"
+	@echo "module   $(MODULE_VERSION)   (module.info; two parts, numeric)"
+	@echo "package  $(notdir $(PACKAGE))"
 
 # Sentinel, deliberately NOT in .PHONY: a phony listing would reinstall 37
 # distributions on every invocation.
@@ -124,18 +139,25 @@ SOURCE_DATE_EPOCH ?= $(shell git log -1 --format=%ct 2>/dev/null || echo 0)
 
 build: ## Package the module as a reproducible Webmin .wbm.gz
 	@test -d $(MODULE) || { echo "$(MODULE)/ does not exist"; exit 1; }
-	@test -n "$(MODULE_VERSION)" || { echo "no version= in $(MODULE)/module.info"; exit 1; }
+	@test -n "$(BASE_VERSION)" || { echo "VERSION is empty"; exit 1; }
 	@mkdir -p $(BUILD)
+	@rm -rf $(BUILD)/stage
+	@mkdir -p $(BUILD)/stage
+	@cp -a $(MODULE) $(BUILD)/stage/$(MODULE)
+	@sed -i 's/^version=.*/version=$(MODULE_VERSION)/' \
+	  $(BUILD)/stage/$(MODULE)/module.info
 	tar --exclude='*.bak-*' --exclude='.*' \
 	  --sort=name --owner=0 --group=0 --numeric-owner \
 	  --mtime=@$(SOURCE_DATE_EPOCH) \
-	  --format=gnu -cf - $(MODULE) | gzip -n > $(PACKAGE)
+	  --format=gnu -C $(BUILD)/stage -cf - $(MODULE) | gzip -n > $(PACKAGE)
+	@rm -rf $(BUILD)/stage
 	@cd $(BUILD) && sha256sum $(notdir $(PACKAGE)) > $(notdir $(PACKAGE)).sha256
 	@ls -l $(PACKAGE)
 	@cat $(PACKAGE).sha256
 
 verify: build ## Check the package against what Webmin's installer requires
 	MODULE=$(MODULE) WEBMIN_REF=$(WEBMIN_REF) \
+	  EXPECT_VERSION=$(MODULE_VERSION) \
 	  bash tests/verify-package.sh $(PACKAGE)
 	@$(MAKE) --no-print-directory reproducible
 

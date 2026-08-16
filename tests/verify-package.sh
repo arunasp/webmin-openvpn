@@ -98,6 +98,17 @@ case "$version" in
     *) pass "version is numeric ($version)" ;;
 esac
 
+# Webmin compares versions numerically, so a third component would be read as
+# nothing: perl evaluates 1.0.7 as 1, and every module shipped with 2.653 uses
+# two parts. A three-part version here would break update detection silently.
+parts=$(printf '%s' "$version" | awk -F. '{print NF}')
+assert_eq "the version has two parts, as Webmin compares them" "2" "$parts"
+
+if [ -n "${EXPECT_VERSION:-}" ]; then
+    assert_eq "the package carries the version the build stamped" \
+        "$EXPECT_VERSION" "$version"
+fi
+
 depends=$(printf '%s\n' "$info" | sed -n 's/^depends=//p')
 case "$depends" in
     ''|*[!0-9.\ ]*) fail "depends is a Webmin version" "depends=$depends names something else" ;;
