@@ -38,15 +38,20 @@ apt install openvpn easy-rsa
 
 ## Installation
 
-Build the module package, or download it from the workflow artifacts:
+Download the packaged module from a release, and check it:
 
 ```sh
-make build
+gh release download vX.Y.Z --repo arunasp/webmin-openvpn \
+    --pattern "*.wbm.gz" --pattern "*.sha256"
+sha256sum -c openvpn-server-X.Y.Z.wbm.gz.sha256
 ```
 
-This produces `build/openvpn-server-<version>.wbm.gz` and a matching
-`.sha256`. Install it through **Webmin → Webmin Configuration → Webmin Modules
-→ Install Module → From uploaded file**.
+Install it through **Webmin → Webmin Configuration → Webmin Modules → Install
+Module → From uploaded file**.
+
+`make build` produces the same package from a checkout, for development. A
+server should run a released artifact rather than a working copy - see
+[DEPLOY.md](DEPLOY.md).
 
 Client installation for Windows, Android, iOS, macOS and Linux is covered in
 [docs/clients.md](docs/clients.md).

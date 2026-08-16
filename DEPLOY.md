@@ -48,10 +48,43 @@ derived from the `cert` directive in `server.conf`, so it needs no setting;
 here, and naming the wrong one produces a revocation that reports success while
 the revoked client stays connected.
 
+## What gets deployed
+
+A server runs released code, never a working copy. Releases are produced by
+CI from `main` after every stage has passed, tagged `vMAJOR.MINOR.BUILD`, and
+published with the packaged module and its checksum attached.
+
+Nothing on a server should come from a development branch. A checkout is for
+building and testing; what a server installs is an artifact somebody can
+point at, verify and reinstall identically later. The build is reproducible,
+so the checksum is the whole guarantee: the same tag produces the same bytes.
+
+```sh
+# on a machine with the GitHub CLI, pick the release to deploy
+gh release list --repo arunasp/webmin-openvpn
+gh release download v1.0.42 --repo arunasp/webmin-openvpn \
+    --pattern "*.wbm.gz" --pattern "*.sha256"
+
+# verify before it goes anywhere near a server
+sha256sum -c openvpn-server-1.0.42.wbm.gz.sha256
+```
+
+The two shell tools ship in the repository rather than in the package, so
+take them from the same tag - not from whatever the checkout happens to be
+sitting on:
+
+```sh
+git fetch --tags
+git archive v1.0.42 tools/ | tar -x -C /tmp
+```
+
+Then install from `/tmp/tools`, as below. Checking `vpn-server status` after
+an upgrade tells you which code is actually running.
+
 ## Installing the tools
 
-    install -o root -g root -m 0755 tools/vpn-client  /usr/local/sbin/vpn-client
-    install -o root -g root -m 0755 tools/vpn-server  /usr/local/sbin/vpn-server
+    install -o root -g root -m 0755 /tmp/tools/vpn-client /usr/local/sbin/vpn-client
+    install -o root -g root -m 0755 /tmp/tools/vpn-server /usr/local/sbin/vpn-server
 
 Then confirm against the real installation, in this order, before trusting
 anything:
@@ -62,9 +95,7 @@ anything:
 
 ## Installing the module
 
-    make build
-
-Install the resulting `build/openvpn-server-<version>.wbm.gz` through **Webmin
+Install the downloaded and verified `openvpn-server-<version>.wbm.gz` through **Webmin
 → Webmin Configuration → Webmin Modules → Install Module → From uploaded
 file**, then open **Servers → OpenVPN**.
 
