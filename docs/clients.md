@@ -12,8 +12,9 @@ certificates to place by hand, no paths to edit.
 
 ## Getting the file
 
-In the module, **Servers → OpenVPN → Download** beside the client. The browser
-saves it as `<name>.ovpn`.
+In the module, **Servers → OpenVPN → Download** beside the client. That opens
+a page describing the file and how each platform imports it, with the profile
+itself behind a button; the browser saves it as `<name>.ovpn`.
 
 From a shell on the server:
 

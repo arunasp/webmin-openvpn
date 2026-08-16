@@ -81,6 +81,36 @@ happened to create it.
 copied. Without that, `vpn-client` cannot run `./easyrsa` and the server can
 issue nothing - a server that builds cleanly and is useless.
 
+## The listener takes both address families
+
+`proto udp` binds one family, in practice IPv4, and OpenVPN says so in its
+own log: "Could not determine IPv4/IPv6 protocol. Using AF_INET". A phone on
+an IPv6-only mobile network cannot reach that except through whatever
+translation its carrier provides, which is not a property to leave to chance
+in software whose clients are phones.
+
+`udp6` opens a dual-stacked socket that accepts both: an AF_INET6 socket with
+`IPV6_V6ONLY` unset receives IPv4 datagrams as `::ffff:` addresses. `init`
+detects rather than assumes, because a host with IPv6 disabled in the kernel
+cannot bind `udp6` at all and the server would fail to start.
+
+The client profile keeps the plain form. `udp6` in a client configuration
+forces the client onto IPv6 and fails wherever there is none; the profile
+names the transport and lets the client choose the family from DNS.
+
+## The tools are found, not configured
+
+The package installs into `/usr/sbin`, because Debian policy reserves
+`/usr/local` for the administrator. A manual install conventionally uses
+`/usr/local/sbin`. Either would otherwise require correcting the module
+configuration after the fact, so the module takes the configured path when it
+exists and searches the usual directories when it does not.
+
+`vpn-server` does the same for the `vpn-client` it calls, preferring the copy
+beside itself. The two ship together, and hardcoding either location meant
+`set-port` skipped regenerating profiles on the other - after it had already
+changed the port those profiles name.
+
 ## Site identity lives on the server
 
 No host name, network, path or key material belonging to a live installation
@@ -98,7 +128,16 @@ handling is exercised against certificates openssl produced. What it cannot esta
 how the genuine dependencies behave: a fake that is handed its answers by the
 fixture proves nothing about the tool it stands in for.
 
-That gap is covered separately. `make e2e` runs `init` against easy-rsa itself
-checkout across several releases, and `make apicheck` verifies every Webmin
-function the module calls against the Webmin release being targeted. Neither
-proves a page renders, which remains a browser's job.
+That gap is covered separately, by four stages that each remove one kind of
+pretending:
+
+- `make e2e` runs `init` against an easy-rsa checkout, across several releases.
+- `make apicheck` verifies every Webmin function the module calls against the
+  Webmin release being targeted.
+- `make e2e-tunnel` builds a server, connects a client through it, revokes that
+  client and confirms it is refused. Nothing above it establishes that a
+  profile works or that revocation has any effect on a running server.
+- `make e2e-webmin` installs the package into Webmin and drives the module over
+  HTTP. It is the only stage that can tell whether a page renders, and the
+  first time it ran by hand it found JSON that broke the server panel whenever
+  nobody was connected.

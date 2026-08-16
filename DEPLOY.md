@@ -1,8 +1,8 @@
 # Deployment
 
-The pipeline stops at `make verify`. Installation happens on the target server,
-because it needs credentials and privileges no CI runner has; a `deploy` target
-that can only ever be run by hand would be a pretence.
+CI builds, checks and publishes a release. Installation happens on the target
+server, because it needs credentials and privileges no CI runner has; a
+`deploy` target that can only ever be run by hand would be a pretence.
 
 ## Requirements
 
@@ -36,7 +36,7 @@ is a shell fragment, so quote anything containing spaces:
     SERVER_UNIT=openvpn-server@server
     UPNP_UNIT=upnp-port-forward.service
     UPNP_DEFAULTS=/etc/default/upnp-port-forward
-    VPN_CLIENT=/usr/local/sbin/vpn-client
+    VPN_CLIENT=/usr/local/sbin/vpn-client   # only if the tools are somewhere unusual
 
 Only `REMOTE_HOST` has no sensible default. Everything else matches a stock
 easy-rsa 3 layout on Debian or Ubuntu. The server's own certificate name is
@@ -52,8 +52,9 @@ the revoked client stays connected.
 
 A server runs released code, never a working copy. Releases are produced by
 CI from `main` after every stage has passed, tagged `vMAJOR.MINOR.BUILD`, and
-published with everything a server installs: the packaged module, both shell
-tools, and a `SHA256SUMS` covering all three.
+published with everything a server installs: the packaged module, a `.deb` of
+the tools, both tools as plain files, the installer, and a `SHA256SUMS`
+covering all of them.
 
 Nothing on a server should come from a development branch. A checkout is for
 building and testing; what a server installs is an artifact somebody can
@@ -115,8 +116,9 @@ program.
     install -o root -g root -m 0755 vpn-client /usr/local/sbin/vpn-client
     install -o root -g root -m 0755 vpn-server /usr/local/sbin/vpn-server
 
-Then confirm against the installed site, in this order, before trusting
-anything:
+`vpn-server` calls the `vpn-client` installed beside it, so both belong in the
+same directory. Then confirm against the installed site, in this order, before
+trusting anything:
 
     vpn-server status          # unit state, port, connections
     vpn-client list            # the same clients the PKI knows about

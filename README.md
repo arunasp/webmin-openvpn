@@ -141,8 +141,10 @@ server, never in this repository. See [DEPLOY.md](DEPLOY.md) for the full list.
 ```
 openvpn-server/   the Webmin module
 tools/            vpn-client and vpn-server
-tests/            test suite, fixtures and repository checks
+tests/            test suite, fixtures, container images, repository checks
+packaging/        the .deb control file and the release installer
 docs/             design notes and client installation
+VERSION           major.minor; CI adds the build number
 openvpn/          the legacy third-party module, kept for reference only
 ```
 

@@ -96,8 +96,9 @@ which runs against a genuine easy-rsa checkout.
 The same limit applies to `tests/stubs/WebminCore.pm`. It exists so Webmin
 modules can be syntax- and policy-checked on a machine without Webmin, and it
 implements nothing at all. It proves compilation, never behaviour;
-`make apicheck` proves the functions exist in a given Webmin release, and only
-a browser proves a page renders.
+`make apicheck` proves the functions exist in a given Webmin release, and
+`make e2e-webmin` installs the module into Webmin and drives its pages over
+HTTP, which is what proves they render.
 
 ## Repository hygiene
 
@@ -124,10 +125,28 @@ messages, because a push publishes history, not just the checkout.
 every `make` command it shows exists, that the module settings table matches
 the module's own defaults, that the Webmin and easy-rsa versions it names are
 the ones pinned in the Makefile, that release examples use a placeholder
-rather than a version that will age, and that internal links resolve.
+rather than a version that will age, that the stage table below covers every
+prerequisite of `all` and `lint`, and that internal links resolve.
 
 It checks facts, not prose. Nothing can tell you an explanation has stopped
 being true; this catches the parts that can be compared against something.
+
+Which is why the documentation gets read in full, not only checked. The first
+review of this repository found thirteen stale statements; the checks had
+caught two of them. The other eleven were sentences that had quietly stopped
+describing the software: a claim that only a browser could prove a page
+renders, after a stage was added that does; a workflow described as running
+on branches after it moved to pull requests; a release said to carry three
+assets after it grew to five.
+
+Two habits follow, and the second exists because the first is not enough:
+
+- When behaviour changes, re-read the sections describing that behaviour in
+  the same commit. A new prerequisite, a new stage, a changed default and a
+  changed trigger each invalidate prose somewhere.
+- Read all five documents end to end before bumping the minor or major
+  version. Drift accumulates in the sections nobody happened to touch, and
+  the only way it surfaces is somebody reading what is actually written.
 
 ## Versions and releases
 
@@ -146,9 +165,9 @@ is the one the build intended.
     make version                  # what this build would produce
     make build BUILD_NUMBER=42    # package 1.0.42, module.info 1.42
 
-Development branches run `.github/workflows/ci.yml`. Merging to `main` runs
-`release.yml`, which repeats every stage and, only if all of them pass, tags
-`vMAJOR.MINOR.BUILD` and publishes the package and its checksum. Bump
+Pull requests run `.github/workflows/ci.yml`, from forks as well. Merging to
+`main` runs `release.yml`, which repeats every stage and, only if all of them
+pass, tags `vMAJOR.MINOR.BUILD` and publishes the release assets. Bump
 `VERSION` when the minor or major changes; the build number takes care of
 itself.
 

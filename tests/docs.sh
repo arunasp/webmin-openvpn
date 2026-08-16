@@ -128,4 +128,23 @@ else
     fail "every internal link points at a file that exists" "$broken"
 fi
 
+echo
+echo "== has behaviour moved since the documentation did?"
+# Not an assertion. Documentation can be right while the code changes around
+# it, and can be wrong the moment it does; nothing here can tell which. What
+# it can say is that the code has moved and the prose has not, which is when
+# a full read is worth the time.
+code_at=$(git log -1 --format=%ct -- tools openvpn-server Makefile .github 2>/dev/null || echo 0)
+docs_at=$(git log -1 --format=%ct -- "${docs[@]}" 2>/dev/null || echo 0)
+if [ "$code_at" -gt 0 ] && [ "$docs_at" -gt 0 ]; then
+    days=$(( (code_at - docs_at) / 86400 ))
+    if [ "$days" -ge 14 ]; then
+        echo "[note] behaviour last changed $days days after the documentation."
+        echo "       Read all five documents end to end before the next release."
+    else
+        echo "[note] documentation and behaviour last moved within $days days"
+        echo "       of each other"
+    fi
+fi
+
 report
