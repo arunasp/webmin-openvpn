@@ -342,6 +342,17 @@ else
 fi
 assert_eq "and reports zero" "0" "$(printf '%s' "$OUT" | json_field connected)"
 
+# The package installs both tools into /usr/sbin, a manual install puts them
+# in /usr/local/sbin. vpn-server must call the vpn-client beside it either
+# way, or set-port silently skips regenerating the profiles it just
+# invalidated.
+sibling=$(mktemp -d)
+install -m 0755 "$repo/tools/vpn-client" "$repo/tools/vpn-server" "$sibling/"
+resolved=$(cd "$sibling" && bash -c 'source <(sed -n "/^find_vpn_client/,/^}/p" vpn-server); find_vpn_client')
+assert_eq "vpn-server calls the vpn-client beside it" \
+    "$sibling/vpn-client" "$resolved"
+rm -rf "$sibling"
+
 echo
 echo "== vpn-server: set-port refusals"
 run_server "$root" set-port abc

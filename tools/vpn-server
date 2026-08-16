@@ -44,7 +44,24 @@ STATUS_FILE=${STATUS_FILE:-/var/log/openvpn/status.log}
 SERVER_UNIT=${SERVER_UNIT:-openvpn-server@server}
 UPNP_UNIT=${UPNP_UNIT:-upnp-port-forward.service}
 UPNP_DEFAULTS=${UPNP_DEFAULTS:-/etc/default/upnp-port-forward}
-VPN_CLIENT=${VPN_CLIENT:-/usr/local/sbin/vpn-client}
+# The two tools ship together, so the copy of vpn-client beside this script is
+# the one to call. The package installs both into /usr/sbin and a manual
+# install puts both in /usr/local/sbin; hardcoding either meant set-port
+# skipped its profile regeneration on the other, which is the one thing
+# set-port exists to do.
+find_vpn_client() {
+    local self dir cand
+    self=$(readlink -f "$0" 2>/dev/null || printf '%s' "$0")
+    dir=$(dirname "$self")
+    for cand in "$dir/vpn-client" /usr/sbin/vpn-client /usr/local/sbin/vpn-client; do
+        if [ -x "$cand" ]; then
+            printf '%s\n' "$cand"
+            return 0
+        fi
+    done
+    printf '%s\n' /usr/local/sbin/vpn-client
+}
+VPN_CLIENT=${VPN_CLIENT:-$(find_vpn_client)}
 SERVER_CONF=$SERVER_DIR/server.conf
 
 need_root() {

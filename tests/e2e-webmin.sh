@@ -146,6 +146,21 @@ else
 fi
 
 echo
+echo "== where the tools came from"
+# The package installs into /usr/sbin while the module configuration names
+# /usr/local/sbin. If both existed the module would read the configured path
+# and this would prove nothing, so check the configured one is absent: the
+# page above rendered because the module resolved the path itself.
+configured=$(sed -n 's/^vpn_client=//p' "$WEBMIN_ROOT/$module/config")
+if [ -x "$configured" ]; then
+    echo "[note] $configured exists, so resolution was not exercised"
+else
+    pass "the module resolved the tools away from the configured path"
+    assert_eq "they came from the package" "/usr/sbin/vpn-client" \
+        "$(command -v vpn-client)"
+fi
+
+echo
 echo "== the client list"
 index=$(cat "$tmp/index.html")
 if ! printf "%s" "$index" | grep -q "VPN clients"; then

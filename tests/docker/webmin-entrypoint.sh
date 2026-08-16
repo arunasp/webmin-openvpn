@@ -20,6 +20,13 @@ export PATH=/usr/local/testbin:$PATH
 
 cd /src
 
+echo "== install the tools from the package"
+make deb >/dev/null
+dpkg -i build/*.deb
+command -v vpn-client >/dev/null || { echo "vpn-client is not on PATH"; exit 1; }
+echo "   $(command -v vpn-client)"
+echo "   $(command -v vpn-server)"
+
 echo "== build a server and issue clients"
 vpn-server init --host vpn.example.com --port 1194 >/dev/null
 vpn-client add laptop >/dev/null
