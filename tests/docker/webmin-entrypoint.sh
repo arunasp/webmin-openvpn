@@ -8,7 +8,7 @@
 set -euo pipefail
 
 # No init system in a container. systemctl is faked for the duration; every
-# other part of this - easy-rsa, openssl, openvpn, Webmin - is real.
+# other part of this - easy-rsa, openssl, openvpn, Webmin - is the software itself.
 mkdir -p /usr/local/testbin
 cat > /usr/local/testbin/systemctl <<'EOF'
 #!/bin/bash

@@ -143,7 +143,7 @@ openvpn/          the legacy third-party module, kept for reference only
 ```sh
 make help         # list targets
 make all          # leak scan, lint, suite, package and verify
-make e2e          # additionally test against real Webmin and easy-rsa
+make e2e          # additionally test against Webmin and easy-rsa
 make preflight    # checks that must pass before pushing
 ```
 

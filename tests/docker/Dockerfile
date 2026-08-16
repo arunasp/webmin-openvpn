@@ -1,4 +1,4 @@
-# Image for the tunnel test: a real OpenVPN server, a real client, and a real
+# Image for the tunnel test: an OpenVPN server, a client, and a
 # certificate authority, in a network namespace of their own.
 #
 # NOT based on openvpn/openvpn-as. That image is OpenVPN Access Server, a

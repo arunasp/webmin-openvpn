@@ -83,7 +83,7 @@ issue nothing — a server that builds cleanly and is useless.
 
 ## Site identity lives on the server
 
-No host name, network, path or key material belonging to a real installation
+No host name, network, path or key material belonging to a live installation
 appears in this repository. The tools read `/etc/default/vpn-tools` when it is
 readable; the defaults in the code are RFC 2606 documentation placeholders.
 
@@ -93,12 +93,12 @@ every unpushed commit by `make preflight`. Its limits are documented in
 
 ## What the checks can and cannot prove
 
-The suite runs against a fixture site with a real EC PKI, so certificate
-handling is exercised against real certificates. What it cannot establish is
+The suite runs against a fixture site with an EC PKI, so certificate
+handling is exercised against certificates openssl produced. What it cannot establish is
 how the genuine dependencies behave: a fake that is handed its answers by the
 fixture proves nothing about the tool it stands in for.
 
-That gap is covered separately. `make e2e` runs `init` against a real easy-rsa
+That gap is covered separately. `make e2e` runs `init` against easy-rsa itself
 checkout across several releases, and `make apicheck` verifies every Webmin
 function the module calls against the Webmin release being targeted. Neither
 proves a page renders, which remains a browser's job.

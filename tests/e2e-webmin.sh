@@ -1,5 +1,5 @@
 #!/bin/bash
-# Install the built package into a real Webmin and exercise the module through
+# Install the built package into an installed Webmin and exercise the module through
 # HTTP: the client list, the download page, the download itself, and the
 # refusals.
 #

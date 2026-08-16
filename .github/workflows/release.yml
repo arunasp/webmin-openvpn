@@ -35,7 +35,7 @@ jobs:
       - run: make test
       - run: make verify BUILD_NUMBER=${{ github.run_number }}
 
-  real-dependencies:
+  integration:
     name: Integration
     runs-on: ubuntu-latest
     steps:
@@ -70,7 +70,7 @@ jobs:
 
   publish:
     name: Publish
-    needs: [checks, real-dependencies, tunnel, webmin]
+    needs: [checks, integration, tunnel, webmin]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7

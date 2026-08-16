@@ -2,7 +2,7 @@ name: CI
 
 # The same stages the local runner executes, in the same order, so a green
 # check here means what a green `make all` means. Jobs are split by what they
-# need: the first needs nothing, the second needs the network to fetch real
+# need: the first needs nothing, the second needs the network to fetch upstream
 # dependencies, and the last two need a container and a tun device.
 
 # Development branches. main is handled by release.yml, which runs the same
@@ -58,7 +58,7 @@ jobs:
             build/dist/*
           if-no-files-found: error
 
-  real-dependencies:
+  integration:
     name: Integration
     runs-on: ubuntu-latest
     steps:

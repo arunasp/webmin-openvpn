@@ -1,5 +1,5 @@
 #!/bin/bash
-# Run vpn-server init against the REAL easy-rsa, not the fixture's fake.
+# Run vpn-server init against easy-rsa itself, not the fixture's fake.
 #
 # This stage exists because of a defect the mocked suite could not see. The
 # fake easyrsa was handed a curve by the fixture and produced EC certificates
@@ -8,15 +8,15 @@
 # default. A mock that supplies the value under test validates nothing about
 # it.
 #
-# What is real here: easy-rsa itself, openssl, the PKI, the certificates.
+# What is not faked here: easy-rsa, openssl, the PKI, the certificates.
 # What is still faked: systemctl (no init system in a container), id (the
 # worker is unprivileged), and openvpn (not installed, and not what this
 # stage is testing - the tls-crypt branch is covered by the mocked suite).
 #
-# Takes the path to a real easyrsa as its first argument.
+# Takes the path to an easyrsa checkout as its first argument.
 set -uo pipefail
 
-easyrsa_bin=${1:?usage: e2e-real.sh <path-to-easyrsa>}
+easyrsa_bin=${1:?usage: e2e-easyrsa.sh <path-to-easyrsa>}
 here=$(cd "$(dirname "$0")" && pwd)
 repo=$(dirname "$here")
 # shellcheck source=tests/lib.sh
@@ -58,7 +58,7 @@ out=$(PATH="$root/bin:$PATH" \
     bash "$repo/tools/vpn-server" init --host vpn.example.com \
         --push "192.168.50.0 255.255.255.0" 2>&1)
 rc=$?
-assert_exit "init against the real easy-rsa" 0 "$rc"
+assert_exit "init against easy-rsa itself" 0 "$rc"
 if [ "$rc" -ne 0 ]; then
     printf '%s\n' "$out"
     report
@@ -75,7 +75,7 @@ key_curve() {
 }
 
 echo
-echo "== the certificates the real tool produced"
+echo "== the certificates easy-rsa produced"
 assert_eq "CA is EC" "id-ecPublicKey" "$(key_algo "$root/easyrsa/pki/ca.crt")"
 assert_eq "CA is on the requested curve" "P-384" "$(key_curve "$root/easyrsa/pki/ca.crt")"
 assert_eq "server certificate is EC" "id-ecPublicKey" \
@@ -126,12 +126,12 @@ assert_file_contains "vars carries the curve" \
     "$root/easyrsa/vars" "set_var EASYRSA_CURVE          secp384r1"
 
 echo
-echo "== a client issued from the real CA"
+echo "== a client issued from that CA"
 out=$(PATH="$root/bin:$PATH" SITE_CONF=/dev/null \
     EASYRSA_DIR="$root/easyrsa" CLIENT_DIR="$root/clients" \
     SERVER_DIR="$root/server" STATUS_FILE="$root/log/status.log" \
     bash "$repo/tools/vpn-client" add first-client 2>&1)
-assert_exit "vpn-client add against the real PKI" 0 "$?"
+assert_exit "vpn-client add against that PKI" 0 "$?"
 assert_file_contains "the profile inlines a certificate" \
     "$root/clients/first-client.ovpn" "BEGIN CERTIFICATE"
 assert_file_contains "the profile inlines a private key" \

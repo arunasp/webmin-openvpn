@@ -17,8 +17,8 @@ that can only ever be run by hand would be a pretence.
 
 ## Site identity
 
-**Nothing in this repository names a real host, network or client.** The
-defaults in `tools/vpn-client` and `tools/vpn-server` are placeholders. Real
+**Nothing in this repository names a live host, network or client.** The
+defaults in `tools/vpn-client` and `tools/vpn-server` are placeholders. Site
 values live in one file on the target server:
 
     /etc/default/vpn-tools     root:root, 0600
@@ -115,7 +115,7 @@ program.
     install -o root -g root -m 0755 vpn-client /usr/local/sbin/vpn-client
     install -o root -g root -m 0755 vpn-server /usr/local/sbin/vpn-server
 
-Then confirm against the real installation, in this order, before trusting
+Then confirm against the installed site, in this order, before trusting
 anything:
 
     vpn-server status          # unit state, port, connections

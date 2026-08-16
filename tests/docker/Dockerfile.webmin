@@ -1,4 +1,4 @@
-# Image for the Webmin stage: a real Webmin, the tools, and a real PKI, so the
+# Image for the Webmin stage: Webmin, the tools, and a PKI, so the
 # module can be driven over HTTP exactly as a browser would.
 #
 # Webmin is installed from its own release rather than from a third-party

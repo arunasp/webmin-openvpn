@@ -1,16 +1,16 @@
 #!/bin/bash
 # Build a throwaway OpenVPN site in a temporary directory.
 #
-# The PKI is real, not stubbed: certificates are generated with openssl using
-# the same EC curve as a real installation, so the code paths that read
+# The PKI is not stubbed: certificates are generated with openssl using
+# the same EC curve as a live installation, so the code paths that read
 # index.txt, call openssl x509 and inline certificates into a profile run
-# for real. Only the pieces that cannot exist here are faked - easyrsa, which
+# as written. Only the pieces that cannot exist here are faked - easyrsa, which
 # would otherwise need a full easy-rsa 3 install, and systemctl.
 #
 # Prints the fixture root on stdout.
 #
 # With --bare it stops after creating the directory skeleton and the fake
-# easyrsa, so `vpn-server init` has the same starting point a real unconfigured
+# easyrsa, so `vpn-server init` has the same starting point an unconfigured
 # host gives it: a tool and nowhere to put anything yet.
 set -euo pipefail
 
