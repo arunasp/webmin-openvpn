@@ -237,6 +237,44 @@ assert_file_contains "site config supplies the remote host" \
     "$root/clients/alice-phone.ovpn" "remote vpn.example.org 1194"
 run_client "$root" regen alice-phone >/dev/null
 
+# What the clients documented requirements actually are. OpenVPN Connect
+# rejects a profile that is not UTF-8 or ASCII, or that exceeds 256 KB, and
+# both it and OpenVPN GUI import a single file: anything the profile refers to
+# by filename has to be beside it on the device, which on iOS is impossible
+# for a private key. So the profile must be self-contained and plain text.
+profile=$root/clients/alice-phone.ovpn
+size=$(wc -c < "$profile")
+if [ "$size" -lt 262144 ]; then
+    pass "the profile is inside the 256 KB import limit ($size bytes)"
+else
+    fail "the profile is inside the 256 KB import limit" "$size bytes"
+fi
+
+if LC_ALL=C grep -q '[^[:print:][:space:]]' "$profile"; then
+    fail "the profile is plain text" "it contains non-printable bytes"
+else
+    pass "the profile is plain text, as the importers require"
+fi
+
+for block in ca cert key tls-crypt; do
+    assert_file_contains "the profile inlines <$block>" "$profile" "<$block>"
+done
+
+# A directive naming a file rather than an inline block would need that file
+# carried alongside, which is the thing the unified format exists to avoid.
+external=$(grep -nE '^[[:space:]]*(ca|cert|key|tls-auth|tls-crypt|pkcs12|dh)[[:space:]]+[^<]' \
+           "$profile" || true)
+if [ -z "$external" ]; then
+    pass "no directive refers to a file the client would not have"
+else
+    fail "no directive refers to a file the client would not have" "$external"
+fi
+
+# key-direction matters only for tls-auth; tls-crypt carries no direction, and
+# stating one would be rejected.
+assert_not_contains "no key-direction, which tls-crypt does not take" \
+    "$(cat "$profile")" "key-direction"
+
 run_client "$root" add 'bad name'
 assert_exit "add rejects an unsafe name" 1 "$RC"
 assert_contains "add says which names are allowed" "$OUT" "letters, digits"
