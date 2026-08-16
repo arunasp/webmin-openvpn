@@ -33,3 +33,35 @@ warn_key=A profile contains the client's private key. Send it over something pri
 down_ename=$1 is not a valid client name
 down_emissing=No profile exists for $1. It may have been revoked, or the client was created before profiles were kept.
 down_eread=The profile for $1 could not be read
+down_title=Profile for $1
+down_file=The file
+down_filename=Filename
+down_format=Format
+down_formatdesc=Unified OpenVPN profile - a single self-contained file. Nothing to unpack, no certificates to place by hand, no paths to edit.
+down_contains=Contains
+down_containsdesc=The connection settings, the CA certificate, this client's certificate, its private key and the tls-crypt key.
+down_size=Size
+down_button=Download the profile
+down_keywarn=This file contains the client's private key. Send it over something private - not email and not a chat app - and delete your copy once it is installed on the device.
+down_howto=Installing it
+down_howtointro=Every current OpenVPN client imports this one file. There is no bundle to unpack: the certificates and the key are inside it.
+down_col_os=System
+down_col_client=Client
+down_col_how=What to do with the file
+down_windows_os=Windows 10 and 11
+down_windows_client=OpenVPN GUI, from <a href='https://openvpn.net/community-downloads/'>the community installer</a>
+down_windows_how=Right-click the tray icon, Import, Import file. Or run openvpn-gui.exe --import with the path to the file.
+down_android_os=Android
+down_android_client=<a href='https://play.google.com/store/apps/details?id=net.openvpn.openvpn'>OpenVPN Connect</a>, or <a href='https://f-droid.org/packages/de.blinkt.openvpn/'>OpenVPN for Android</a>
+down_android_how=Copy the file to the device and open it, or use Import, File inside the app.
+down_ios_os=iOS and iPadOS
+down_ios_client=<a href='https://apps.apple.com/app/openvpn-connect/id590379981'>OpenVPN Connect</a>
+down_ios_how=Send the file to the device by AirDrop or Files and open it. iOS offers OpenVPN Connect as the handler.
+down_macos_os=macOS
+down_macos_client=<a href='https://tunnelblick.net/'>Tunnelblick</a>, or OpenVPN Connect
+down_macos_how=Double-click the file.
+down_linux_os=Linux
+down_linux_client=openvpn, or NetworkManager
+down_linux_how=openvpn --config &lt;file&gt;, or nmcli connection import type openvpn file &lt;file&gt;
+down_revokenote=If this client is revoked, the profile stops working and cannot be repaired - issue a new client instead. If the server's port or protocol changes, profiles are reissued automatically.
+index_return2=client list
