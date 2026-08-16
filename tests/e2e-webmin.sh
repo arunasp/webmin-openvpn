@@ -67,7 +67,7 @@ cp "$WEBMIN_ROOT/$module/config" "$tmp/etc/$module/config"
 # page answering "user root is not allowed to use" - which is what the first
 # CI run of this stage did.
 # If the source configuration already grants the module, the copy inherits
-# that and the grant below is never exercised - which is precisely how a
+# that and the grant below is never exercised - which is how a
 # broken grant survived every local run while failing in CI, where the
 # install is always fresh. Say so rather than reporting a pass that covers
 # less than it appears to.
@@ -76,7 +76,7 @@ if grep -q "^root:.*$module" "$WEBMIN_ETC/webmin.acl" 2>/dev/null; then
     echo "       exercise the grant step. A fresh install does."
 fi
 # If the source configuration already grants the module, the copy inherits
-# that and the grant below is never exercised - which is precisely how a
+# that and the grant below is never exercised - which is how a
 # broken grant survived every local run while failing in CI, where the
 # install is always fresh. Say so rather than reporting a pass that covers
 # less than it appears to.

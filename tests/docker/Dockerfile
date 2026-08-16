@@ -9,7 +9,7 @@
 # exercise a different product.
 #
 # Ubuntu 24.04 instead, because the distribution packages are what a target
-# host actually runs.
+# host runs.
 
 FROM ubuntu:24.04
 

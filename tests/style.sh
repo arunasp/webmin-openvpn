@@ -25,12 +25,28 @@ repo=$(dirname "$here")
 cd "$repo" || exit 1
 
 # One word per line, matched whole and case-insensitively.
+# Words with no technical use here: every one of them is emphasis standing
+# in for a specific noun. Judgement words that do carry meaning -
+# deliberately, actually, cleanly - are left alone; the fix for those is
+# writing less of them, not a check.
 BANNED='real
 really
 genuinely
 seamlessly
+seamless
 robustly
-effortlessly'
+effortlessly
+surely
+obviously
+essentially
+fundamentally
+crucially
+delve
+showcase
+plethora
+myriad
+leverage
+utilize'
 
 # Exact phrases where a banned word is part of a name defined elsewhere.
 EXEMPT='real UID
@@ -63,6 +79,16 @@ if [ "$found" -eq 0 ]; then
     pass "no filler words outside the exempt technical terms"
 else
     fail "no filler words" "$found occurrence(s) above - name the thing instead"
+fi
+
+# An em dash among ASCII hyphens is the other half of the same habit: the
+# tree uses " - " everywhere, and a stray em dash marks text that came from
+# somewhere with different typographic manners.
+dashes=$(printf '%s\n' "$files" | xargs grep -n '—' 2>/dev/null || true)
+if [ -z "$dashes" ]; then
+    pass "no em dashes; the tree uses ASCII hyphens"
+else
+    fail "no em dashes" "$(printf '%s' "$dashes" | head -3 | tr '\n' ' ')"
 fi
 
 report

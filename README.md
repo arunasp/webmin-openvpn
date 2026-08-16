@@ -17,7 +17,7 @@ named `openvpn@NAME`. Current Debian and Ubuntu releases ship
 is not a layout those modules recognise: they either fail to see the
 certificates or rewrite them into a form the server rejects.
 
-Webmin's own interface API is not the obsolete part — every `ui_*` function
+Webmin's own interface API is not the obsolete part - every `ui_*` function
 those modules call still exists in Webmin 2.6. What is obsolete is the PKI
 engine, so this module replaces that and keeps the presentation layer thin.
 
@@ -111,7 +111,7 @@ vpn-server set-port 1195 udp
 The port appears in `server.conf`, in the UPnP mapping, and in the `remote`
 line of every issued profile. Editing only the first leaves a server that
 starts cleanly, reports itself healthy, and is unreachable from every existing
-client — so this is one operation that updates all three, regenerates the
+client - so this is one operation that updates all three, regenerates the
 profiles, and rolls everything back if the server does not restart.
 
 ## Configuration
@@ -143,7 +143,7 @@ openvpn/          the legacy third-party module, kept for reference only
 ```sh
 make help         # list targets
 make all          # leak scan, lint, suite, package and verify
-make e2e          # additionally test against Webmin and easy-rsa
+make e2e          # also test against Webmin and easy-rsa
 make preflight    # checks that must pass before pushing
 ```
 

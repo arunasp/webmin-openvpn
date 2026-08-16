@@ -82,7 +82,7 @@ dependencies are faked, each for a reason that cannot be worked around:
 
 **A mock that supplies the value under test validates nothing about it.** The
 fixture's fake `easyrsa` was once handed its curve by the fixture, so it
-produced EC certificates regardless of what the code requested — while the code
+produced EC certificates regardless of what the code requested - while the code
 was in fact inheriting easy-rsa's RSA default. The mocked suite was green
 throughout. Assertions about what easy-rsa itself does belong in `make e2e`,
 which runs against a genuine easy-rsa checkout.
@@ -99,10 +99,10 @@ No host name, network address, path or key material belonging to a live
 installation may enter this repository. `make scan` enforces this structurally:
 it rejects any fully qualified domain name outside the RFC 2606 documentation
 domains, any address outside a short declared list, Windows-style paths, and
-private key headers. Private addresses are not exempt — RFC 1918 space
-describes the topology of a specific site as surely as a public address does.
+private key headers. Private addresses are not exempt - RFC 1918 space
+describes the topology of a specific site as clearly as a public address does.
 
-Two limits are worth knowing. The `.sh`, `.pl` and `.info` suffixes are
+Two limits follow from that. The `.sh`, `.pl` and `.info` suffixes are
 excluded from the host name rule because they collide with filenames in this
 repository, so a host under those TLDs would pass. And a site codename is an
 ordinary word rather than a structural pattern; no scanner can catch that, and
@@ -139,5 +139,5 @@ itself.
 
 Describe the reasoning, not the diff: what was wrong, what changed, and why
 that is the right place for the change. Where a defect was found by a specific
-check, say which — that is what tells the next reader whether the check is
+check, say which - that is what tells the next reader whether the check is
 worth keeping.

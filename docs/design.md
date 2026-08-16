@@ -30,7 +30,7 @@ server, no browser and no Webmin installation.
 
 Tools are invoked in list form through `IPC::Open3`. No shell is involved, so a
 form field is a single argument whatever it contains. Names are validated in
-the module as well as in the tools — two cheap checks in different places beat
+the module as well as in the tools - two cheap checks in different places beat
 one clever one.
 
 ## The listening port is an operation, not a field
@@ -71,7 +71,7 @@ possible moment.
 
 easy-rsa defaults to RSA 2048. `vpn-server init` writes `EASYRSA_ALGO` and
 `EASYRSA_CURVE` into the CA directory's `vars` file rather than only exporting
-them for its own run, so every later invocation inherits the setting — from
+them for its own run, so every later invocation inherits the setting - from
 `vpn-client`, or from an administrator running `./easyrsa` by hand. The
 algorithm is then a property of the CA directory rather than of whoever
 happened to create it.
@@ -79,7 +79,7 @@ happened to create it.
 `init` also gives the CA directory the shape `make-cadir` produces: the
 `easyrsa` entry point and `x509-types` symlinked in, `openssl-easyrsa.cnf`
 copied. Without that, `vpn-client` cannot run `./easyrsa` and the server can
-issue nothing — a server that builds cleanly and is useless.
+issue nothing - a server that builds cleanly and is useless.
 
 ## Site identity lives on the server
 

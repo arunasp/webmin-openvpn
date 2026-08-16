@@ -43,8 +43,8 @@ ALLOWED_HOSTS = {
 
 # Addresses this repository is allowed to write down. Everything else is a
 # finding, including private addresses: "it is only an internal address" is
-# precisely how an internal address ends up published, and RFC 1918 space
-# describes the topology of a specific site just as surely as a public one.
+# how an internal address ends up published, and RFC 1918 space
+# describes the topology of a specific site as clearly as a public one.
 #
 # The two private entries are the fixture's own LAN and the tunnel subnet in
 # its server.conf. Adding a third means editing this list, which is the point

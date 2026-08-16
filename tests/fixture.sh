@@ -105,7 +105,7 @@ issue alice-phone 1080
 issue bob-laptop 1080
 issue retired-laptop 1080
 
-# --- index.txt, in the format easy-rsa 3 actually writes ------------------
+# --- index.txt, in the format easy-rsa 3 writes ---------------------------
 # V/R/E, expiry, revocation date (R only), serial, filename, subject DN.
 {
     printf 'V\t290730185650Z\t\t01\tunknown\t/CN=gateway-server\n'

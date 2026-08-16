@@ -3,7 +3,7 @@
 # version it will actually run on.
 #
 # The compile-time stub in tests/stubs makes `use WebminCore` compile
-# anywhere, deliberately implementing nothing - so perl -cw and perlcritic
+# anywhere, implementing nothing - so perl -cw and perlcritic
 # cannot tell a shipped ui_* function from a typo. Neither can they tell a
 # function that was removed between Webmin releases. This closes that gap
 # against a checkout of Webmin itself.
