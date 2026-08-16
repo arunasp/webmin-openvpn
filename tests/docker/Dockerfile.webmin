@@ -20,6 +20,8 @@ RUN apt-get update \
       easy-rsa \
       openssl \
       python3 \
+      make \
+      procps \
  && curl -sSLo /tmp/webmin.deb \
       "https://github.com/webmin/webmin/releases/download/${WEBMIN_VERSION}/webmin_${WEBMIN_VERSION}_all.deb" \
  && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends /tmp/webmin.deb \
@@ -29,7 +31,9 @@ RUN apt-get update \
 WORKDIR /src
 COPY tools /src/tools
 COPY tests /src/tests
-COPY Makefile cicd-common.mk /src/
+# VERSION too: build reads it for the release number, and without it the
+# package cannot be named.
+COPY Makefile cicd-common.mk VERSION /src/
 COPY openvpn-server /src/openvpn-server
 
 # The tools have to be where the module's default configuration expects them,
