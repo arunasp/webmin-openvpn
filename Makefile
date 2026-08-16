@@ -13,10 +13,15 @@ endif
 # and recorded in DEPLOY.md rather than pretended at here.
 
 MODULE   ?= openvpn-server
+# Read from module.info rather than repeated here: Webmin already treats that
+# file as the version of record, and a second copy is a second thing to
+# forget. The artifact carries it so a downloaded file says what it is.
+MODULE_VERSION = $(shell sed -n 's/^version=//p' $(MODULE)/module.info)
 TOOLS     = $(wildcard tools/vpn-*)
 SUITE     = $(wildcard tests/*.sh)
 PERLSRC   = $(wildcard $(MODULE)/*.cgi) $(wildcard $(MODULE)/*.pl)
 BUILD    ?= build
+PACKAGE   = $(BUILD)/$(MODULE)-$(MODULE_VERSION).wbm.gz
 
 # CPAN dependencies live on the project tree, not in the container and not in
 # the system perl: the worker is unprivileged and discarded after every call,
@@ -51,7 +56,7 @@ EASYRSA_REPO   = https://github.com/OpenVPN/easy-rsa.git
 EASYRSA_CLONE  = .easyrsa/easy-rsa
 EASYRSA_REAL   = $(EASYRSA_CLONE)/easyrsa3/easyrsa
 
-.PHONY: perldeps easyrsa webmin apicheck lint scan test build verify reproducible e2e e2e-matrix all clean distclean
+.PHONY: perldeps easyrsa webmin apicheck lint scan test build verify reproducible preflight e2e e2e-matrix all clean distclean
 
 # Sentinel, deliberately NOT in .PHONY: a phony listing would reinstall 37
 # distributions on every invocation.
@@ -103,6 +108,11 @@ lint: scan ## Leak scan, ShellCheck, and Perl compile and policy checks
 scan: ## Fail if site identity or key material reached the tree
 	python3 tests/scan.py
 
+# Run this before pushing anywhere public. scan covers the working tree; a
+# push publishes every commit, and history is where both previous leaks were.
+preflight: ## Check the working tree AND every unpushed commit
+	bash tests/preflight.sh
+
 test: ## Run the tools against a fixture site with systemctl and id mocked
 	bash tests/run.sh
 
@@ -114,25 +124,26 @@ SOURCE_DATE_EPOCH ?= $(shell git log -1 --format=%ct 2>/dev/null || echo 0)
 
 build: ## Package the module as a reproducible Webmin .wbm.gz
 	@test -d $(MODULE) || { echo "$(MODULE)/ does not exist"; exit 1; }
+	@test -n "$(MODULE_VERSION)" || { echo "no version= in $(MODULE)/module.info"; exit 1; }
 	@mkdir -p $(BUILD)
 	tar --exclude='*.bak-*' --exclude='.*' \
 	  --sort=name --owner=0 --group=0 --numeric-owner \
 	  --mtime=@$(SOURCE_DATE_EPOCH) \
-	  --format=gnu -cf - $(MODULE) | gzip -n > $(BUILD)/$(MODULE).wbm.gz
-	@cd $(BUILD) && sha256sum $(MODULE).wbm.gz > $(MODULE).wbm.gz.sha256
-	@ls -l $(BUILD)/$(MODULE).wbm.gz
-	@cat $(BUILD)/$(MODULE).wbm.gz.sha256
+	  --format=gnu -cf - $(MODULE) | gzip -n > $(PACKAGE)
+	@cd $(BUILD) && sha256sum $(notdir $(PACKAGE)) > $(notdir $(PACKAGE)).sha256
+	@ls -l $(PACKAGE)
+	@cat $(PACKAGE).sha256
 
 verify: build ## Check the package against what Webmin's installer requires
 	MODULE=$(MODULE) WEBMIN_REF=$(WEBMIN_REF) \
-	  bash tests/verify-package.sh $(BUILD)/$(MODULE).wbm.gz
+	  bash tests/verify-package.sh $(PACKAGE)
 	@$(MAKE) --no-print-directory reproducible
 
 # A checksum nobody can reproduce is a number, not a guarantee.
 reproducible: ## Rebuild and confirm the package is byte-identical
-	@cp $(BUILD)/$(MODULE).wbm.gz $(BUILD)/.first.wbm.gz
+	@cp $(PACKAGE) $(BUILD)/.first.wbm.gz
 	@$(MAKE) --no-print-directory build >/dev/null
-	@if cmp -s $(BUILD)/.first.wbm.gz $(BUILD)/$(MODULE).wbm.gz; then \
+	@if cmp -s $(BUILD)/.first.wbm.gz $(PACKAGE); then \
 	  echo "[PASS] the package rebuilds byte-identically"; \
 	else \
 	  echo "[FAIL] the package is not reproducible"; exit 1; \

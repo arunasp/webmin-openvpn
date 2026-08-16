@@ -20,7 +20,7 @@ from pathlib import Path
 
 # Only our own work. The vendored upstream module is already public and is
 # not ours to police.
-INCLUDE_DIRS = ("tools", "tests", "openvpn-server")
+INCLUDE_DIRS = ("tools", "tests", "openvpn-server", ".github")
 INCLUDE_FILES = ("Makefile", "cicd-common.mk", "PROJECT.md", "DEPLOY.md",
                  ".gitignore")
 SKIP_NAMES = {"scan.py"}
@@ -136,7 +136,13 @@ def check_line(path, number, line, findings):
 
 
 def main():
-    root = Path(__file__).resolve().parent.parent
+    # A root can be passed in so the same rules can be applied to an extracted
+    # commit tree, not just the working copy. A push publishes every commit,
+    # so checking only what is checked out proves very little.
+    if len(sys.argv) > 1:
+        root = Path(sys.argv[1]).resolve()
+    else:
+        root = Path(__file__).resolve().parent.parent
     findings = []
 
     for path in files_to_scan(root):

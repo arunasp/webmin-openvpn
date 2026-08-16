@@ -1,0 +1,80 @@
+name: CI
+
+# The same stages the local runner executes, in the same order, so a green
+# check here means what a green `make all` means. Two jobs rather than one
+# because the second needs the network: it clones Webmin and easy-rsa to test
+# against the real tools, and that is slow enough to be worth separating from
+# the fast feedback.
+
+on:
+  push:
+    branches: [main, master, 'refactor/**']
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  checks:
+    name: lint, scan and suite
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # Perl::Critic is a project-local dependency, cached on the key of the
+      # manifest that pins it. A cache miss costs one cpanm run, not a wrong
+      # result.
+      - name: Cache CPAN dependencies
+        uses: actions/cache@v4
+        with:
+          path: local
+          key: cpan-${{ runner.os }}-${{ hashFiles('cpanfile') }}
+
+      - name: Install CPAN dependencies
+        run: make perldeps
+
+      - name: Leak scan
+        run: make scan
+
+      - name: Lint
+        run: make lint
+
+      - name: Suite
+        run: make test
+
+      - name: Build and verify the package
+        run: make verify
+
+      - name: Publish the package
+        uses: actions/upload-artifact@v4
+        with:
+          name: webmin-module
+          path: |
+            build/*.wbm.gz
+            build/*.wbm.gz.sha256
+          if-no-files-found: error
+
+  real-dependencies:
+    name: against real Webmin and easy-rsa
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # Both clones are pinned by ref, so the cache key can be the ref itself.
+      - name: Cache dependency checkouts
+        uses: actions/cache@v4
+        with:
+          path: |
+            .webmin
+            .easyrsa
+          key: refs-${{ runner.os }}-webmin-2.653-easyrsa-v3.1.7
+
+      - name: Check the module against the Webmin release it targets
+        run: make apicheck
+
+      # Runs init against genuine easy-rsa on more than one release. This is
+      # the stage that has caught every defect the mocked suite could not see,
+      # so it runs on every push rather than on request.
+      - name: Run init against real easy-rsa, on each supported release
+        run: make e2e-matrix
