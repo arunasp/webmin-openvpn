@@ -95,8 +95,10 @@ jobs:
             exit 1
           fi
 
-      - name: Build the package
-        run: make verify BUILD_NUMBER=${{ github.run_number }}
+      - name: Build the package and assemble the release assets
+        run: |
+          make verify BUILD_NUMBER=${{ github.run_number }}
+          make dist BUILD_NUMBER=${{ github.run_number }}
 
       - name: Tag the commit
         run: |
@@ -113,6 +115,8 @@ jobs:
           name: ${{ steps.version.outputs.release }}
           generate_release_notes: true
           files: |
-            build/*.wbm.gz
-            build/*.wbm.gz.sha256
+            build/dist/*.wbm.gz
+            build/dist/vpn-client
+            build/dist/vpn-server
+            build/dist/SHA256SUMS
           fail_on_unmatched_files: true

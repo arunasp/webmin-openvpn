@@ -66,7 +66,7 @@ EASYRSA_REPO   = https://github.com/OpenVPN/easy-rsa.git
 EASYRSA_CLONE  = .easyrsa/easy-rsa
 EASYRSA_REAL   = $(EASYRSA_CLONE)/easyrsa3/easyrsa
 
-.PHONY: perldeps easyrsa webmin apicheck lint scan test build verify reproducible preflight version e2e e2e-matrix e2e-tunnel e2e-webmin all clean distclean
+.PHONY: perldeps easyrsa webmin apicheck lint scan test build dist verify reproducible preflight version e2e e2e-matrix e2e-tunnel e2e-webmin all clean distclean
 
 version: ## Print the release version this build would produce
 	@echo "release  $(RELEASE_VERSION)"
@@ -160,6 +160,19 @@ verify: build ## Check the package against what Webmin's installer requires
 	  EXPECT_VERSION=$(MODULE_VERSION) \
 	  bash tests/verify-package.sh $(PACKAGE)
 	@$(MAKE) --no-print-directory reproducible
+
+# Everything a server installs, in one place with one checksum file. The
+# module ships as a package; the two tools do not, and a server that takes
+# them from anywhere else is running half a release. A target host has no
+# git and no gh, so the assets have to be plain files behind plain URLs.
+dist: build ## Assemble the release assets and their checksums
+	@rm -rf $(BUILD)/dist
+	@mkdir -p $(BUILD)/dist
+	@cp $(PACKAGE) $(BUILD)/dist/
+	@cp tools/vpn-client tools/vpn-server $(BUILD)/dist/
+	@cd $(BUILD)/dist && sha256sum * > SHA256SUMS
+	@ls -l $(BUILD)/dist
+	@cat $(BUILD)/dist/SHA256SUMS
 
 # A checksum nobody can reproduce is a number, not a guarantee.
 reproducible: ## Rebuild and confirm the package is byte-identical

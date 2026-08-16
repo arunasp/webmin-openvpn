@@ -46,15 +46,16 @@ jobs:
         run: make test
 
       - name: Build and verify the package
-        run: make verify BUILD_NUMBER=${{ github.run_number }}
+        run: |
+          make verify BUILD_NUMBER=${{ github.run_number }}
+          make dist BUILD_NUMBER=${{ github.run_number }}
 
       - name: Publish the package
         uses: actions/upload-artifact@v4
         with:
           name: webmin-module
           path: |
-            build/*.wbm.gz
-            build/*.wbm.gz.sha256
+            build/dist/*
           if-no-files-found: error
 
   real-dependencies:

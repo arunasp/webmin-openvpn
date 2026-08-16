@@ -38,13 +38,18 @@ apt install openvpn easy-rsa
 
 ## Installation
 
-Download the packaged module from a release, and check it:
+Download the packaged module from a release and check it - no git or GitHub
+CLI needed on the target:
 
 ```sh
-gh release download vX.Y.Z --repo arunasp/webmin-openvpn \
-    --pattern "*.wbm.gz" --pattern "*.sha256"
-sha256sum -c openvpn-server-X.Y.Z.wbm.gz.sha256
+REL=https://github.com/arunasp/webmin-openvpn/releases/download/vX.Y.Z
+curl -fsSLO $REL/openvpn-server-X.Y.Z.wbm.gz
+curl -fsSLO $REL/SHA256SUMS
+sha256sum --ignore-missing -c SHA256SUMS
 ```
+
+Webmin can also fetch it directly, under **Install Module -> From ftp or
+http URL**.
 
 Install it through **Webmin → Webmin Configuration → Webmin Modules → Install
 Module → From uploaded file**.

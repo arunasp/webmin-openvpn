@@ -52,39 +52,36 @@ the revoked client stays connected.
 
 A server runs released code, never a working copy. Releases are produced by
 CI from `main` after every stage has passed, tagged `vMAJOR.MINOR.BUILD`, and
-published with the packaged module and its checksum attached.
+published with everything a server installs: the packaged module, both shell
+tools, and a `SHA256SUMS` covering all three.
 
 Nothing on a server should come from a development branch. A checkout is for
 building and testing; what a server installs is an artifact somebody can
 point at, verify and reinstall identically later. The build is reproducible,
 so the checksum is the whole guarantee: the same tag produces the same bytes.
 
-```sh
-# on a machine with the GitHub CLI, pick the release to deploy
-gh release list --repo arunasp/webmin-openvpn
-gh release download v1.0.42 --repo arunasp/webmin-openvpn \
-    --pattern "*.wbm.gz" --pattern "*.sha256"
-
-# verify before it goes anywhere near a server
-sha256sum -c openvpn-server-1.0.42.wbm.gz.sha256
-```
-
-The two shell tools ship in the repository rather than in the package, so
-take them from the same tag - not from whatever the checkout happens to be
-sitting on:
+The assets are plain files behind plain URLs. A server needs no git, no
+GitHub CLI and no account:
 
 ```sh
-git fetch --tags
-git archive v1.0.42 tools/ | tar -x -C /tmp
+REL=https://github.com/arunasp/webmin-openvpn/releases/download/v1.0.42
+
+curl -fsSLO $REL/openvpn-server-1.0.42.wbm.gz
+curl -fsSLO $REL/vpn-client
+curl -fsSLO $REL/vpn-server
+curl -fsSLO $REL/SHA256SUMS
+
+# verify all three before anything is installed
+sha256sum -c SHA256SUMS
 ```
 
-Then install from `/tmp/tools`, as below. Checking `vpn-server status` after
-an upgrade tells you which code is actually running.
+Substitute the tag you intend to deploy; `curl -f` fails on a missing asset
+rather than saving an error page as if it were a package.
 
 ## Installing the tools
 
-    install -o root -g root -m 0755 /tmp/tools/vpn-client /usr/local/sbin/vpn-client
-    install -o root -g root -m 0755 /tmp/tools/vpn-server /usr/local/sbin/vpn-server
+    install -o root -g root -m 0755 vpn-client /usr/local/sbin/vpn-client
+    install -o root -g root -m 0755 vpn-server /usr/local/sbin/vpn-server
 
 Then confirm against the real installation, in this order, before trusting
 anything:
@@ -95,7 +92,12 @@ anything:
 
 ## Installing the module
 
-Install the downloaded and verified `openvpn-server-<version>.wbm.gz` through **Webmin
+Webmin can fetch the package itself, which saves downloading it twice:
+**Webmin Configuration -> Webmin Modules -> Install Module -> From ftp or
+http URL**, given the release asset URL. Verify the checksum first if the
+file is downloaded by hand instead.
+
+Or install the downloaded and verified `openvpn-server-<version>.wbm.gz` through **Webmin
 → Webmin Configuration → Webmin Modules → Install Module → From uploaded
 file**, then open **Servers → OpenVPN**.
 
