@@ -441,14 +441,23 @@ EOF
     easyrsa=$EASYRSA_DIR/easyrsa
 
     echo "building the certificate authority ($EASYRSA_ALGO $EASYRSA_CURVE)..."
-    ( cd "$EASYRSA_DIR" && "$easyrsa" --batch init-pki ) >/dev/null 2>&1 ||
+    # </dev/null on every call: easy-rsa 3.0.x prompts for a PEM passphrase
+    # even when told nopass, and with stdin inherited that waits forever. A
+    # CGI that hangs is worse than one that fails, so a prompt becomes an
+    # immediate error instead.
+    ( cd "$EASYRSA_DIR" && "$easyrsa" --batch init-pki ) >/dev/null 2>&1 </dev/null ||
         { echo "init-pki failed" >&2; return 1; }
     ( cd "$EASYRSA_DIR" && EASYRSA_REQ_CN="$host CA" \
-        "$easyrsa" --batch build-ca nopass ) >/dev/null 2>&1 ||
-        { echo "build-ca failed" >&2; return 1; }
+        "$easyrsa" --batch build-ca nopass ) >/dev/null 2>&1 </dev/null || {
+        echo "build-ca failed" >&2
+        echo "easy-rsa 3.1 or newer is required: 3.0.x asks for a passphrase" >&2
+        echo "here despite nopass, which cannot be answered unattended." >&2
+        return 1
+    }
     ( cd "$EASYRSA_DIR" && "$easyrsa" --batch build-server-full "$cn" nopass ) \
-        >/dev/null 2>&1 || { echo "build-server-full failed" >&2; return 1; }
-    ( cd "$EASYRSA_DIR" && "$easyrsa" --batch gen-crl ) >/dev/null 2>&1 ||
+        >/dev/null 2>&1 </dev/null ||
+        { echo "build-server-full failed" >&2; return 1; }
+    ( cd "$EASYRSA_DIR" && "$easyrsa" --batch gen-crl ) >/dev/null 2>&1 </dev/null ||
         { echo "gen-crl failed" >&2; return 1; }
 
     install -m 644 "$EASYRSA_DIR/pki/ca.crt" "$SERVER_DIR/pki/ca.crt" || return 1

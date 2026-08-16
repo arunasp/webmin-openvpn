@@ -28,17 +28,22 @@ CPANM      = .cpanm/cpanm
 # module can be checked anywhere but a host with Webmin installed.
 PERL_ENV   = PERL5LIB=$(CURDIR)/$(PERL_LIB):$(CURDIR)/tests/stubs
 
-# The real easy-rsa, pinned and checksummed, cached on the project tree like
-# every other dependency here. e2e needs the genuine tool: the suite's fake
-# cannot prove that easy-rsa honours what init asks it for, and that is
-# exactly where a defect hid once already.
-EASYRSA_VERSION ?= 3.1.7
-EASYRSA_SHA256  ?= aaa48fadcbb77511b9c378554ef3eae09f8c7bc149d6f56ba209f1c9bab98c6e
-EASYRSA_URL      = https://github.com/OpenVPN/easy-rsa/releases/download/v$(EASYRSA_VERSION)/EasyRSA-$(EASYRSA_VERSION).tgz
-EASYRSA_HOME     = .easyrsa/EasyRSA-$(EASYRSA_VERSION)
-EASYRSA_REAL     = $(EASYRSA_HOME)/easyrsa
+# The real easy-rsa, from its own repository so the release tags are visible
+# and e2e can run against more than one of them. Cached on the project tree
+# like every other dependency here.
+#
+# A blob-filtered clone is 11 MB against 70 MB for a full one, and still
+# carries every tag. Note the difference from a release tarball: in the git
+# tree the version string is the unsubstituted placeholder ~VER~ and the
+# script lives under easyrsa3/, because the tarball is a built artifact and
+# this is the source.
+EASYRSA_REF   ?= v3.1.7
+EASYRSA_REFS  ?= v3.1.7 v3.2.6
+EASYRSA_REPO   = https://github.com/OpenVPN/easy-rsa.git
+EASYRSA_CLONE  = .easyrsa/easy-rsa
+EASYRSA_REAL   = $(EASYRSA_CLONE)/easyrsa3/easyrsa
 
-.PHONY: perldeps easyrsa lint scan test build verify e2e all clean distclean
+.PHONY: perldeps easyrsa lint scan test build verify e2e e2e-matrix all clean distclean
 
 # Sentinel, deliberately NOT in .PHONY: a phony listing would reinstall 37
 # distributions on every invocation.
@@ -52,17 +57,16 @@ EASYRSA_REAL     = $(EASYRSA_HOME)/easyrsa
 
 perldeps: .perldeps ## Install CPAN dependencies into ./local
 
-# The extracted binary is the target, so this runs once and not again. The
-# checksum is not decoration: an unverified download is an unpinned
-# dependency wearing a version number.
+# The checked-out script is the target, so the clone happens once. Pinning is
+# by tag rather than checksum: a tag names a release the upstream project
+# published, and git verifies the objects it fetched.
 $(EASYRSA_REAL):
 	@mkdir -p .easyrsa
-	curl -sSL -o .easyrsa/easyrsa.tgz $(EASYRSA_URL)
-	echo "$(EASYRSA_SHA256)  .easyrsa/easyrsa.tgz" | sha256sum -c -
-	tar -xzf .easyrsa/easyrsa.tgz -C .easyrsa
-	@test -x $@ || { echo "$@ missing after extraction"; exit 1; }
+	git clone -q --filter=blob:none $(EASYRSA_REPO) $(EASYRSA_CLONE)
+	git -C $(EASYRSA_CLONE) -c advice.detachedHead=false checkout -q $(EASYRSA_REF)
+	@test -x $@ || { echo "$@ missing after checkout"; exit 1; }
 
-easyrsa: $(EASYRSA_REAL) ## Fetch the pinned easy-rsa release into .easyrsa
+easyrsa: $(EASYRSA_REAL) ## Clone easy-rsa and check out EASYRSA_REF
 
 lint: scan ## Leak scan, ShellCheck, and Perl compile and policy checks
 	@test -n "$(TOOLS)" || { echo "no tools found to check"; exit 1; }
@@ -93,7 +97,19 @@ verify: build ## Check the package a browser would receive
 	MODULE=$(MODULE) bash tests/verify-package.sh $(BUILD)/$(MODULE).wbm.gz
 
 e2e: verify $(EASYRSA_REAL) ## Also run init against the real easy-rsa (needs network)
+	git -C $(EASYRSA_CLONE) -c advice.detachedHead=false checkout -q $(EASYRSA_REF)
 	bash tests/e2e-real.sh $(EASYRSA_REAL)
+
+# easy-rsa 3.0.x is deliberately absent from EASYRSA_REFS: it prompts for a
+# passphrase despite nopass, so it cannot be driven unattended at all. The
+# tools fail fast against it rather than hanging, which is the most that can
+# be done from this side.
+e2e-matrix: verify $(EASYRSA_REAL) ## Run e2e against every ref in EASYRSA_REFS
+	@for ref in $(EASYRSA_REFS); do \
+	  echo "===== easy-rsa $$ref ====="; \
+	  git -C $(EASYRSA_CLONE) -c advice.detachedHead=false checkout -q "$$ref" || exit 1; \
+	  bash tests/e2e-real.sh $(EASYRSA_REAL) || exit 1; \
+	done
 
 # e2e is deliberately not in all: it downloads. Run it before trusting any
 # change to init, because the mocked suite cannot see what the real tool does.

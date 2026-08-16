@@ -416,6 +416,37 @@ assert_exit "init fails loudly when neither form works" 1 "$RC"
 assert_contains "and names the step that failed" "$OUT" "tls-crypt"
 
 echo
+echo "== init: a prompting easy-rsa fails instead of hanging"
+# easy-rsa 3.0.x asks for a PEM passphrase even when told nopass. With stdin
+# inherited that waits forever, and this code runs from a CGI where nobody can
+# answer. The tools close stdin, so a prompt becomes an immediate failure.
+root=$(new_bare_fixture modern)
+cat > "$root/easyrsa/easyrsa" <<'PROMPTER'
+#!/bin/bash
+case "$*" in
+    *init-pki*) mkdir -p pki/issued pki/private; : > pki/index.txt; exit 0 ;;
+esac
+read -r -p "Enter PEM pass phrase: " answer || exit 1
+exit 0
+PROMPTER
+chmod 755 "$root/easyrsa/easyrsa"
+start=$(date +%s)
+timeout 20 bash -c "PATH='$root/bin:$PATH' SITE_CONF='$root/default/vpn-tools' \
+    SERVER_DIR='$root/server' CLIENT_DIR='$root/clients' \
+    EASYRSA_DIR='$root/easyrsa' STATUS_FILE='$root/log/status.log' \
+    bash '$VPN_SERVER_BIN' init --host vpn.example.com" > "$root/prompt.log" 2>&1
+RC=$?
+elapsed=$(( $(date +%s) - start ))
+assert_exit "init fails against a prompting easy-rsa" 1 "$RC"
+if [ "$elapsed" -lt 10 ]; then
+    pass "it failed immediately rather than waiting on the prompt"
+else
+    fail "it failed immediately rather than waiting on the prompt" "took ${elapsed}s"
+fi
+assert_file_contains "and names the version requirement" \
+    "$root/prompt.log" "3.1 or newer"
+
+echo
 echo "== init: easy-rsa must be found, not guessed"
 root=$(new_bare_fixture modern)
 rm -f "$root/easyrsa/easyrsa"

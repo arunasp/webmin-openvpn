@@ -37,6 +37,17 @@ derived from the `cert` directive in `server.conf`, so it needs no setting;
 named here, and naming the wrong one produces a revocation that reports
 success while the revoked client stays connected.
 
+## Requirements
+
+- **easy-rsa 3.1 or newer.** 3.0.x prompts for a PEM passphrase even when told
+  `nopass`, so it cannot be driven unattended; the tools fail immediately
+  against it rather than hanging. Verified against 3.1.7 and 3.2.6.
+- **OpenVPN 2.4 or newer**, for either `--genkey secret` or `--genkey
+  --secret`; the tools detect which form is understood.
+- On Debian and Ubuntu both are packages: `apt install openvpn easy-rsa`.
+  `vpn-server init` builds its own CA directory, so `make-cadir` is not
+  needed beforehand.
+
 ## Installing the tools
 
     install -o root -g root -m 0755 tools/vpn-client  /usr/local/sbin/vpn-client

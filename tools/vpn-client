@@ -256,7 +256,9 @@ add)
         echo "'$name' already exists - revoke it first, or pick another name" >&2
         exit 1
     fi
-    ./easyrsa --batch build-client-full "$name" nopass >/dev/null 2>&1 ||
+    # </dev/null: a prompting easy-rsa must fail rather than hang, since this
+    # runs from a CGI with nobody to answer it.
+    ./easyrsa --batch build-client-full "$name" nopass >/dev/null 2>&1 </dev/null ||
         { echo "certificate generation failed" >&2; exit 1; }
     write_profile "$name" || { echo "profile generation failed" >&2; exit 1; }
     echo "created $name"
@@ -273,9 +275,9 @@ revoke)
     valid_name "$name" || { echo "name: letters, digits, - and _ only" >&2; exit 1; }
     cd "$EASYRSA_DIR" || exit 1
     grep -q "/CN=$name\$" pki/index.txt || { echo "no such client: $name" >&2; exit 1; }
-    ./easyrsa --batch revoke "$name" >/dev/null 2>&1 ||
+    ./easyrsa --batch revoke "$name" >/dev/null 2>&1 </dev/null ||
         { echo "revoke failed" >&2; exit 1; }
-    ./easyrsa --batch gen-crl >/dev/null 2>&1
+    ./easyrsa --batch gen-crl >/dev/null 2>&1 </dev/null
     install -m 644 pki/crl.pem "$SERVER_DIR/pki/crl.pem"
     rm -f "$CLIENT_DIR/$name.ovpn"
     # openvpn-server@.service has no ExecReload, so this is a full RESTART: it
