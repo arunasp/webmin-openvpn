@@ -8,7 +8,7 @@ endif
 # make perldeps once, then make all. Run make e2e when a
 # change touches init, because only that stage runs easy-rsa itself.
 #
-# deploy is deliberately absent. Installing to /usr/share/webmin on a server
+# There is no deploy target. Installing to /usr/share/webmin on a server
 # needs credentials no CI runner has, so it is driven from outside and
 # recorded in DEPLOY.md rather than pretended at here.
 
@@ -73,7 +73,7 @@ version: ## Print the release version this build would produce
 	@echo "module   $(MODULE_VERSION)   (module.info; two parts, numeric)"
 	@echo "package  $(notdir $(PACKAGE))"
 
-# Sentinel, deliberately NOT in .PHONY: a phony listing would reinstall 37
+# Sentinel, kept out of .PHONY: a phony listing would reinstall 37
 # distributions on every invocation.
 .perldeps: cpanfile
 	@mkdir -p .cpanm
@@ -218,7 +218,7 @@ e2e: verify apicheck $(EASYRSA_SRC) ## Against easy-rsa and Webmin (needs networ
 	git -C $(EASYRSA_CLONE) -c advice.detachedHead=false checkout -q $(EASYRSA_REF)
 	bash tests/e2e-easyrsa.sh $(EASYRSA_SRC)
 
-# easy-rsa 3.0.x is deliberately absent from EASYRSA_REFS: it prompts for a
+# EASYRSA_REFS leaves out easy-rsa 3.0.x: it prompts for a
 # passphrase despite nopass, so it cannot be driven unattended at all. The
 # tools fail fast against it rather than hanging, which is the most that can
 # be done from this side.
@@ -232,7 +232,7 @@ e2e-matrix: verify $(EASYRSA_SRC) ## Run e2e against every ref in EASYRSA_REFS
 # Installs the built package into an installed Webmin and drives the module over
 # HTTP: the client list, the download page, the profile itself and the
 # refusals. Nothing else can tell whether a page renders - the compile-time
-# stub implements nothing on purpose - and the first hand run of this found
+# stub implements nothing - and the first hand run of this found
 # JSON that broke the server panel whenever nobody was connected.
 #
 # It installs into the shared module directory and needs root, so it belongs
@@ -259,7 +259,7 @@ e2e-webmin: ## Drive the module through Webmin, in a container
 # image rather than a resource limit. This applies to root as much as to any
 # other uid, so it is set regardless of who the container runs as.
 #
-# No --user here on purpose: neither container bind-mounts a host path, so
+# No --user here: neither container bind-mounts a host path, so
 # nothing is written outside it to be left root-owned, and both need root -
 # one for NET_ADMIN and a tun device, the other to install into Webmin.
 e2e-tunnel: ## Build a server and connect a client through it, in a container
@@ -274,7 +274,7 @@ e2e-tunnel: ## Build a server and connect a client through it, in a container
 	  --ulimit nproc=8192:8192 \
 	  openvpn-server-e2e
 
-# e2e is deliberately not in all: it downloads. Run it before trusting any
+# e2e stays out of all: it downloads. Run it before trusting any
 # change to init, because the mocked suite cannot see what easy-rsa itself does.
 all: lint test verify ## Run every stage that needs no network
 

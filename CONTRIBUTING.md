@@ -89,7 +89,7 @@ which runs against a genuine easy-rsa checkout.
 
 The same limit applies to `tests/stubs/WebminCore.pm`. It exists so Webmin
 modules can be syntax- and policy-checked on a machine without Webmin, and it
-deliberately implements nothing. It proves compilation, never behaviour;
+implements nothing at all. It proves compilation, never behaviour;
 `make apicheck` proves the functions exist in a given Webmin release, and only
 a browser proves a page renders.
 

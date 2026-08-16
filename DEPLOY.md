@@ -77,8 +77,8 @@ sudo TAG=v1.0.42 sh install.sh
 ```
 
 Verify before running, rather than piping a URL into a shell. The installer
-is deliberately narrow: it installs files and nothing else - no certificate
-authority, no server configuration, no decisions of its own.
+installs files and stops there. It creates no certificate authority, writes
+no server configuration, and makes no decisions of its own.
 
 ### The package
 

@@ -416,7 +416,7 @@ cmd_init() {
         echo "a server already exists here" >&2
         echo "  config: $SERVER_CONF" >&2
         echo "  pki:    $EASYRSA_DIR/pki" >&2
-        echo "Remove them deliberately if you intend to start over;" >&2
+        echo "Remove them by hand if you intend to start over;" >&2
         echo "every issued profile stops working when the CA changes." >&2
         return 1
     fi

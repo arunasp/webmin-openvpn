@@ -5,7 +5,7 @@
 # assets, verifies every one of them against SHA256SUMS, installs the tools,
 # and tells you the URL to hand Webmin for the module.
 #
-# POSIX sh on purpose. A target host is assumed to have curl, sha256sum and a
+# POSIX sh, not bash. A target host is assumed to have curl, sha256sum and a
 # package manager - nothing else. bash, git and a GitHub account are all
 # things a server should not need in order to install software.
 #

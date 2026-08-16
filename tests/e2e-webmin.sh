@@ -5,7 +5,7 @@
 #
 # Every other stage stops at the boundary of Webmin. perl -cw proves the CGIs
 # compile, apicheck proves the functions they call exist, and the compile-time
-# stub in tests/stubs deliberately implements nothing - so none of them can
+# stub in tests/stubs implements nothing at all - so none of them can
 # tell whether a page renders. Running the module by hand for the first time
 # found a malformed JSON that broke the server panel whenever nobody was
 # connected; this stage exists so the next one of those is found by CI.

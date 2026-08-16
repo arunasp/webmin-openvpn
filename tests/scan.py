@@ -59,15 +59,15 @@ ALLOWED_NETWORKS = [
     ipaddress.ip_network("10.8.0.0/24"),        # the fixture's tunnel subnet
 ]
 
-# Netmasks are not addresses. Prefixes shorter than /8 are deliberately
-# excluded: 128.0.0.0 is far more likely to be an address than a mask.
+# Netmasks are not addresses. Prefixes shorter than /8 are left out:
+# 128.0.0.0 is far more likely to be an address than a mask.
 NETMASKS = {ipaddress.ip_address("0.0.0.0")}
 NETMASKS |= {
     ipaddress.ip_network(f"0.0.0.0/{bits}").netmask for bits in range(8, 33)
 }
 
 # A dotted name only counts as a hostname when its last label is a known
-# public suffix. .sh, .pl and .info are deliberately absent: they are valid
+# public suffix. .sh, .pl and .info are missing from the list: they are valid
 # TLDs but they collide with filenames this project cannot rename - run.sh,
 # a Perl library, and Webmin's own module.info and config.info. A rule that
 # fires on those is a rule that gets skipped. The cost is accepted and worth
