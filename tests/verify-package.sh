@@ -3,7 +3,7 @@
 #
 # build produces a tarball; without this, "build succeeded" only means tar
 # exited zero. These are the failures that would otherwise be discovered by
-# installing a broken module on the bastion:
+# installing a broken module on a server:
 #
 #   - a missing file, so Webmin shows an empty or erroring page
 #   - a wrong category, so the module does not appear under Servers

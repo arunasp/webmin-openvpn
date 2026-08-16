@@ -20,9 +20,9 @@ from pathlib import Path
 
 # Only our own work. The vendored upstream module is already public and is
 # not ours to police.
-INCLUDE_DIRS = ("tools", "tests", "openvpn-server", ".github")
-INCLUDE_FILES = ("Makefile", "cicd-common.mk", "PROJECT.md", "DEPLOY.md",
-                 ".gitignore")
+INCLUDE_DIRS = ("tools", "tests", "openvpn-server", ".github", "docs")
+INCLUDE_FILES = ("Makefile", "cicd-common.mk", "README.md", "DEPLOY.md",
+                 "CONTRIBUTING.md", ".gitignore")
 SKIP_NAMES = {"scan.py"}
 
 # RFC 2606 reserves these for documentation, so any name under them is safe

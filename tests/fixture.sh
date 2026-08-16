@@ -2,9 +2,9 @@
 # Build a throwaway OpenVPN site in a temporary directory.
 #
 # The PKI is real, not stubbed: certificates are generated with openssl using
-# the same EC curve as the bastion, so the code paths that read index.txt,
-# call openssl x509 and inline certificates into a profile are exercised for
-# real. Only the pieces that cannot exist here are faked - easyrsa, which
+# the same EC curve as a real installation, so the code paths that read
+# index.txt, call openssl x509 and inline certificates into a profile run
+# for real. Only the pieces that cannot exist here are faked - easyrsa, which
 # would otherwise need a full easy-rsa 3 install, and systemctl.
 #
 # Prints the fixture root on stdout.

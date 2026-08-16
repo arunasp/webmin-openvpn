@@ -5,12 +5,12 @@ include /etc/cicd-common.mk
 endif
 
 # Pipeline for the openvpn-server Webmin module and the shell tools it wraps.
-# Run through cicd_runner: make perldeps once, then make all. make e2e when a
+# make perldeps once, then make all. Run make e2e when a
 # change touches init, because only that stage sees the real easy-rsa.
 #
-# deploy is deliberately absent. Installing to /usr/share/webmin on the
-# bastion needs ssh credentials no worker has, so it is driven from outside
-# and recorded in DEPLOY.md rather than pretended at here.
+# deploy is deliberately absent. Installing to /usr/share/webmin on a server
+# needs credentials no CI runner has, so it is driven from outside and
+# recorded in DEPLOY.md rather than pretended at here.
 
 MODULE   ?= openvpn-server
 # Read from module.info rather than repeated here: Webmin already treats that

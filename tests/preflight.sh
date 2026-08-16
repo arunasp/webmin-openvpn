@@ -83,7 +83,7 @@ done
 if [ "$clean" -eq 1 ]; then
     pass "$(printf '%s\n' "$commits" | wc -l) commits scanned, none leaking"
 else
-    fail "every commit is clean" "rebuild the branch before pushing; see PROJECT.md"
+    fail "every commit is clean" "rebuild the branch before pushing; see CONTRIBUTING.md"
 fi
 
 echo

@@ -6,8 +6,8 @@
 #
 # The mocking exists because two of the dependencies cannot be exercised for
 # real here. systemctl needs an init system, and the root check needs a uid
-# the worker does not have. Faking those on PATH is what lets the same suite
-# produce the same result as root in a sandbox and as uid 1000 in a worker.
+# an unprivileged CI runner does not have. Faking those on PATH is what lets
+# the suite produce the same result whether or not it runs as root.
 
 TESTS_RUN=0
 TESTS_FAILED=0

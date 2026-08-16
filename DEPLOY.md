@@ -1,19 +1,30 @@
-# Deploying
+# Deployment
 
-The pipeline stops at `make all`. Installation happens on the target host,
-because it needs credentials and privileges no CI worker has, and pretending
-otherwise would make `make deploy` a target that can only ever be run by hand.
+The pipeline stops at `make verify`. Installation happens on the target server,
+because it needs credentials and privileges no CI runner has; a `deploy` target
+that can only ever be run by hand would be a pretence.
+
+## Requirements
+
+- **easy-rsa 3.1 or newer.** 3.0.x prompts for a PEM passphrase even when told
+  `nopass`, so it cannot be driven unattended; the tools fail immediately
+  against it rather than hanging. Verified against 3.1.7 and 3.2.6.
+- **OpenVPN 2.4 or newer**, for either `--genkey secret` or
+  `--genkey --secret`; the tools detect which form is understood.
+- On Debian and Ubuntu both are packages: `apt install openvpn easy-rsa`.
+  `vpn-server init` builds its own CA directory, so `make-cadir` is not needed
+  beforehand.
 
 ## Site identity
 
 **Nothing in this repository names a real host, network or client.** The
 defaults in `tools/vpn-client` and `tools/vpn-server` are placeholders. Real
-values live in one file on the target host:
+values live in one file on the target server:
 
     /etc/default/vpn-tools     root:root, 0600
 
-It is sourced by both tools when readable, before their own defaults apply.
-It is a shell fragment, so quote anything with spaces:
+It is sourced by both tools when readable, before their own defaults apply. It
+is a shell fragment, so quote anything containing spaces:
 
     REMOTE_HOST=vpn.example.com   # the name clients dial; a DDNS name is fine
     REMOTE_PORT=1194              # only as a fallback: the live value is read
@@ -30,34 +41,54 @@ It is a shell fragment, so quote anything with spaces:
 Only `REMOTE_HOST` has no sensible default. Everything else matches a stock
 easy-rsa 3 layout on Debian or Ubuntu. The server's own certificate name is
 derived from the `cert` directive in `server.conf`, so it needs no setting;
-`SERVER_CN` overrides that derivation if a site needs it to.
+`SERVER_CN` overrides that derivation where a site needs it to.
 
-`SERVER_UNIT` matters more than it looks. Distributions ship both
-`openvpn@NAME` and `openvpn-server@NAME`; the tools restart whichever is
-named here, and naming the wrong one produces a revocation that reports
-success while the revoked client stays connected.
-
-## Requirements
-
-- **easy-rsa 3.1 or newer.** 3.0.x prompts for a PEM passphrase even when told
-  `nopass`, so it cannot be driven unattended; the tools fail immediately
-  against it rather than hanging. Verified against 3.1.7 and 3.2.6.
-- **OpenVPN 2.4 or newer**, for either `--genkey secret` or `--genkey
-  --secret`; the tools detect which form is understood.
-- On Debian and Ubuntu both are packages: `apt install openvpn easy-rsa`.
-  `vpn-server init` builds its own CA directory, so `make-cadir` is not
-  needed beforehand.
+`SERVER_UNIT` matters more than it appears to. Distributions ship both
+`openvpn@NAME` and `openvpn-server@NAME`; the tools restart whichever is named
+here, and naming the wrong one produces a revocation that reports success while
+the revoked client stays connected.
 
 ## Installing the tools
 
     install -o root -g root -m 0755 tools/vpn-client  /usr/local/sbin/vpn-client
     install -o root -g root -m 0755 tools/vpn-server  /usr/local/sbin/vpn-server
 
-Then confirm against the real site, in this order, before trusting anything:
+Then confirm against the real installation, in this order, before trusting
+anything:
 
     vpn-server status          # unit state, port, connections
     vpn-client list            # the same clients the PKI knows about
     vpn-client list --json     # parses, and agrees with the table
+
+## Installing the module
+
+    make build
+
+Install the resulting `build/openvpn-server-<version>.wbm.gz` through **Webmin
+→ Webmin Configuration → Webmin Modules → Install Module → From uploaded
+file**, then open **Servers → OpenVPN**.
+
+Verifying in a browser is not optional. Webmin refuses to run its
+library-dependent Perl from outside its own directory and requires
+`WEBMIN_CONFIG` to be set, so module configuration cannot be validated from a
+shell. `make apicheck` proves the functions the module calls exist in the
+target Webmin release; only the browser proves the page renders.
+
+## Creating a server
+
+On a host with no OpenVPN configuration:
+
+    vpn-server init --host vpn.example.com \
+        --push "192.168.50.0 255.255.255.0" --dns 192.168.50.1
+
+`init` refuses to touch an existing server. A PKI is not reproducible: every
+profile ever issued from it stops verifying the moment the CA is replaced, so
+starting over has to be a deliberate act with the old directory removed by
+hand.
+
+Two things `init` does not do, and which remain manual: opening the listening
+port inbound, and enabling IP forwarding if clients should reach anything
+beyond the server itself.
 
 ## Upgrading an existing installation
 
@@ -82,12 +113,8 @@ and every issued profile, restarts the server, and restores all of it if the
 server does not come back up. Editing `server.conf` by hand leaves a server
 that starts cleanly and is unreachable from every existing client.
 
-## What is not automated
+## Removing duplicate entry points
 
-- **Installing the Webmin module.** It is copied to `/usr/share/webmin/` and
-  Webmin is restarted; there is no packaging step yet.
-- **Removing any Custom Commands** that call `vpn-client` directly. They
-  duplicate the module once it is installed.
-- **Verification in a browser.** Webmin refuses to run its library-dependent
-  Perl from outside `/usr/share/webmin` and needs `WEBMIN_CONFIG` set, so
-  shell-side validation of module config does not work. Check it in the UI.
+Where Webmin Custom Commands already call `vpn-client`, delete them once the
+module is installed. Two interfaces to the same operation drift, and the one
+nobody is looking at drifts first.

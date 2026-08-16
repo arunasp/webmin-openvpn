@@ -4,7 +4,7 @@ package WebminCore;
 # host with Webmin installed. `use WebminCore` runs at compile time, so
 # without this no Webmin module can be syntax-checked or policy-checked
 # anywhere else - which would mean the only place to find a typo is a browser
-# on the production bastion.
+# on a production server.
 #
 # THIS IS NOT USED AT RUNTIME and deliberately implements nothing. Webmin
 # exports its ui_* helpers into the caller; module code calls them in the
