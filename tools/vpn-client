@@ -160,8 +160,16 @@ scan_clients() {
 # name, real address, virtual address, ipv6, bytes rx, bytes tx, since, ...
 scan_connected() {
     [ -f "$STATUS_FILE" ] || return 0
-    awk -F, '/^CLIENT_LIST/ { printf "%s|%s|%s|%s\n", $2, $3, $4, $9 }' \
-        "$STATUS_FILE"
+    # A dual-stacked listener reports IPv4 peers as ::ffff:203.0.113.9. That
+    # is correct but unreadable in a table and meaningless to anyone reading
+    # the UI, so the mapped prefix is stripped for display. A genuine IPv6
+    # address is left exactly as it is.
+    awk -F, '/^CLIENT_LIST/ {
+        addr = $3
+        sub(/^\[?::ffff:/, "", addr)
+        sub(/\]$/, "", addr)
+        printf "%s|%s|%s|%s\n", $2, addr, $4, $9
+    }' "$STATUS_FILE"
 }
 
 connected_field() {

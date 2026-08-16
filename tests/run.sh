@@ -187,6 +187,18 @@ else
     fail "list --json emits parseable JSON" "python could not parse it"
 fi
 
+# A dual-stacked listener reports IPv4 peers as ::ffff:203.0.113.9. Rewrite
+# the connected client's address into that form - the list is driven by the
+# PKI, so this has to be a client that actually holds a certificate.
+sed -i 's/,203.0.113.9:/,::ffff:203.0.113.9:/' "$root/log/status.log"
+# The real peer address reaches the interface through --json; the table shows
+# the tunnel address, so the assertion belongs where the value is used.
+run_client "$root" list --json
+assert_contains "an IPv4-mapped peer reaches the module as a plain address" \
+    "$OUT" '"real_address":"203.0.113.9:51820"'
+assert_not_contains "without the mapped prefix" "$OUT" "::ffff:"
+sed -i 's/,::ffff:203.0.113.9:/,203.0.113.9:/' "$root/log/status.log"
+
 echo
 echo "== vpn-client: the root gate"
 run_client "$root" regen --all
