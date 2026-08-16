@@ -48,6 +48,9 @@ This produces `build/openvpn-server-<version>.wbm.gz` and a matching
 `.sha256`. Install it through **Webmin → Webmin Configuration → Webmin Modules
 → Install Module → From uploaded file**.
 
+Client installation for Windows, Android, iOS, macOS and Linux is covered in
+[docs/clients.md](docs/clients.md).
+
 Install the two shell tools the module calls:
 
 ```sh
@@ -121,7 +124,7 @@ server, never in this repository. See [DEPLOY.md](DEPLOY.md) for the full list.
 openvpn-server/   the Webmin module
 tools/            vpn-client and vpn-server
 tests/            test suite, fixtures and repository checks
-docs/             design notes
+docs/             design notes and client installation
 openvpn/          the legacy third-party module, kept for reference only
 ```
 

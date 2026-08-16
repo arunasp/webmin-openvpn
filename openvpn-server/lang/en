@@ -30,3 +30,6 @@ srv_inactive=not running
 act_download=Download
 act_revoke=Revoke
 warn_key=A profile contains the client's private key. Send it over something private, and never by email or a chat app.
+down_ename=$1 is not a valid client name
+down_emissing=No profile exists for $1. It may have been revoked, or the client was created before profiles were kept.
+down_eread=The profile for $1 could not be read

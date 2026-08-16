@@ -49,8 +49,10 @@ echo "== module $module against Webmin ${version:-unknown} ($webmin)"
 
 # Functions the module calls, minus the ones it defines itself: those are
 # ours to keep working and are covered by the rest of the suite.
-called=$(grep -rhoE '&[a-z_]+\(' "$repo/$module" | tr -d '&(' | sort -u)
-ours=$(grep -rhoE '^sub [a-z_]+' "$repo/$module" | sed 's/^sub //' | sort -u)
+# Mixed case matters: ReadParse, PrintHeader and friends are Webmin's, and a
+# lowercase-only pattern silently checked none of them.
+called=$(grep -rhoE '&[A-Za-z_][A-Za-z0-9_]*\(' "$repo/$module" | tr -d '&(' | sort -u)
+ours=$(grep -rhoE '^sub [A-Za-z_][A-Za-z0-9_]*' "$repo/$module" | sed 's/^sub //' | sort -u)
 external=$(comm -23 <(printf '%s\n' "$called") <(printf '%s\n' "$ours"))
 
 if [ -z "$external" ]; then

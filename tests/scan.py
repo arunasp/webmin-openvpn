@@ -36,6 +36,9 @@ ALLOWED_HOSTS = {
     "users.noreply.github.com", "noreply.anthropic.com",
     # Where the pipeline fetches its own tooling from.
     "cpanmin.us", "metacpan.org", "cpan.metacpan.org", "cpan.org",
+    # Official client download sites, named in docs/clients.md.
+    "openvpn.net", "play.google.com", "apps.apple.com", "f-droid.org",
+    "tunnelblick.net", "www.tunnelblick.net",
 }
 
 # Addresses this repository is allowed to write down. Everything else is a
