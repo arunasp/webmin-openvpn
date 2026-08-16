@@ -262,6 +262,21 @@ assert_eq "status: port" "1194" "$(printf '%s' "$OUT" | json_field port)"
 assert_eq "status: proto" "udp" "$(printf '%s' "$OUT" | json_field proto)"
 assert_eq "status: connected count" "1" "$(printf '%s' "$OUT" | json_field connected)"
 
+# A server nobody is connected to is the ordinary case, and it used to emit
+# two lines where the count belongs: grep -c prints 0 and exits 1, so the
+# fallback fired as well. The result was JSON the module could not parse, and
+# the fixture never caught it because its status file always had a client in
+# it.
+: > "$root/log/status.log"
+run_server "$root" status --json
+assert_exit "status --json with nobody connected" 0 "$RC"
+if printf '%s' "$OUT" | python3 -c 'import json,sys; json.load(sys.stdin)' 2>/dev/null; then
+    pass "it is still parseable JSON"
+else
+    fail "it is still parseable JSON" "$OUT"
+fi
+assert_eq "and reports zero" "0" "$(printf '%s' "$OUT" | json_field connected)"
+
 echo
 echo "== vpn-server: set-port refusals"
 run_server "$root" set-port abc

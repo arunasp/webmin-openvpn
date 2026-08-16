@@ -68,11 +68,16 @@ json_string() {
 }
 
 connected_count() {
-    if [ -f "$STATUS_FILE" ]; then
-        grep -c '^CLIENT_LIST' "$STATUS_FILE" 2>/dev/null || echo 0
-    else
-        echo 0
-    fi
+    local count
+    # grep -c prints 0 AND exits 1 when nothing matches, so a `|| echo 0`
+    # fallback fires as well and emits two lines. That is the ordinary state
+    # of a server nobody is connected to, and it produced JSON the module
+    # could not parse.
+    count=$(grep -c '^CLIENT_LIST' "$STATUS_FILE" 2>/dev/null)
+    case "$count" in
+        ''|*[!0-9]*) count=0 ;;
+    esac
+    printf '%s\n' "$count"
 }
 
 crl_next_update() {
