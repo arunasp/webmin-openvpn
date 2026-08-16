@@ -98,6 +98,7 @@ run_init() {
     shift
     OUT=$(PATH="$root/bin:$PATH" \
         SITE_CONF="$root/default/vpn-tools" \
+        EASYRSA_SEARCH_PATH="${EASYRSA_SEARCH_PATH:-/nonexistent}" \
         SERVER_DIR="$root/server" \
         CLIENT_DIR="$root/clients" \
         EASYRSA_DIR="$root/easyrsa" \
@@ -448,9 +449,13 @@ assert_file_contains "and names the version requirement" \
 
 echo
 echo "== init: easy-rsa must be found, not guessed"
+# EASYRSA_SEARCH_PATH is pointed at an empty directory rather than relying on
+# easy-rsa being absent from the machine: this assertion used to pass only
+# where it happened not to be installed, which is not a test.
 root=$(new_bare_fixture modern)
 rm -f "$root/easyrsa/easyrsa"
-run_init "$root" --host vpn.example.com
+mkdir -p "$root/nowhere"
+EASYRSA_SEARCH_PATH="$root/nowhere" run_init "$root" --host vpn.example.com
 assert_exit "init fails when easy-rsa is absent" 1 "$RC"
 assert_contains "and says how to fix it" "$OUT" "EASYRSA_BIN"
 

@@ -35,6 +35,10 @@ SITE_CONF=${SITE_CONF:-/etc/default/vpn-tools}
 SERVER_DIR=${SERVER_DIR:-/etc/openvpn/server}
 EASYRSA_DIR=${EASYRSA_DIR:-/etc/openvpn/easyrsa}
 EASYRSA_BIN=${EASYRSA_BIN:-}
+# Where to look when EASYRSA_BIN is not set and the CA directory has no copy.
+# Overridable so an unusual install can be found, and so the "not installed"
+# path can be tested on a machine that does have easy-rsa.
+EASYRSA_SEARCH_PATH=${EASYRSA_SEARCH_PATH:-/usr/share/easy-rsa:/usr/local/share/easy-rsa:/usr/share/easyrsa}
 CLIENT_DIR=${CLIENT_DIR:-/etc/openvpn/clients}
 STATUS_FILE=${STATUS_FILE:-/var/log/openvpn/status.log}
 SERVER_UNIT=${SERVER_UNIT:-openvpn-server@server}
@@ -259,9 +263,10 @@ find_easyrsa() {
         abs_path "$EASYRSA_DIR/easyrsa"
         return 0
     fi
-    for dir in /usr/share/easy-rsa /usr/local/share/easy-rsa /usr/share/easyrsa; do
+    local IFS=:
+    for dir in $EASYRSA_SEARCH_PATH; do
         if [ -x "$dir/easyrsa" ]; then
-            printf '%s\n' "$dir/easyrsa"
+            abs_path "$dir/easyrsa"
             return 0
         fi
     done

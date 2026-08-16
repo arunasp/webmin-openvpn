@@ -56,7 +56,7 @@ EASYRSA_REPO   = https://github.com/OpenVPN/easy-rsa.git
 EASYRSA_CLONE  = .easyrsa/easy-rsa
 EASYRSA_REAL   = $(EASYRSA_CLONE)/easyrsa3/easyrsa
 
-.PHONY: perldeps easyrsa webmin apicheck lint scan test build verify reproducible preflight e2e e2e-matrix all clean distclean
+.PHONY: perldeps easyrsa webmin apicheck lint scan test build verify reproducible preflight e2e e2e-matrix e2e-tunnel all clean distclean
 
 # Sentinel, deliberately NOT in .PHONY: a phony listing would reinstall 37
 # distributions on every invocation.
@@ -164,6 +164,22 @@ e2e-matrix: verify $(EASYRSA_REAL) ## Run e2e against every ref in EASYRSA_REFS
 	  git -C $(EASYRSA_CLONE) -c advice.detachedHead=false checkout -q "$$ref" || exit 1; \
 	  bash tests/e2e-real.sh $(EASYRSA_REAL) || exit 1; \
 	done
+
+# The only stage that proves the software does what it is for: a real server,
+# a real client, and a certificate that stops working when it is revoked.
+# It needs a container, because a live tunnel wants a network namespace of its
+# own and root to configure an interface - neither of which belongs to a test
+# runner. Run it where a container engine exists.
+e2e-tunnel: ## Build a server and connect a client through it, in a container
+	@command -v docker >/dev/null 2>&1 || { \
+	  echo "docker is required for this stage; the tunnel needs its own"; \
+	  echo "network namespace and a tun device. Run it where docker exists."; \
+	  exit 1; \
+	}
+	docker build -q -f tests/docker/Dockerfile -t openvpn-server-e2e .
+	docker run --rm --network none \
+	  --device /dev/net/tun --cap-add NET_ADMIN \
+	  openvpn-server-e2e
 
 # e2e is deliberately not in all: it downloads. Run it before trusting any
 # change to init, because the mocked suite cannot see what the real tool does.
