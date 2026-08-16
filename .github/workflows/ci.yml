@@ -1,9 +1,9 @@
 name: CI
 
 # The same stages the local runner executes, in the same order, so a green
-# check here means what a green `make all` means. Three jobs: the first needs
-# no network and gives fast feedback, the second clones the real dependencies,
-# and the third needs a container and a tun device.
+# check here means what a green `make all` means. Jobs are split by what they
+# need: the first needs nothing, the second needs the network to fetch real
+# dependencies, and the last two need a container and a tun device.
 
 on:
   push:
@@ -96,3 +96,15 @@ jobs:
       # checks the software's parts; this one checks that it works.
       - name: Build a server and connect a client through it
         run: make e2e-tunnel
+
+  webmin:
+    name: the module in a real Webmin
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # Installs the package into Webmin 2.653 and drives the module over
+      # HTTP: the client list, the download page, the profile and the
+      # refusals. This is the only stage that can tell whether a page renders.
+      - name: Install the module and drive it over HTTP
+        run: make e2e-webmin

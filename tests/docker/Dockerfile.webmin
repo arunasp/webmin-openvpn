@@ -1,0 +1,45 @@
+# Image for the Webmin stage: a real Webmin, the tools, and a real PKI, so the
+# module can be driven over HTTP exactly as a browser would.
+#
+# Webmin is installed from its own release rather than from a third-party
+# image. Nothing on Docker Hub tracks current releases - the images there are
+# years behind - and the whole point is to test against the version the target
+# host runs, pinned here and in the Makefile.
+#
+# Ubuntu 24.04 because the distribution packages are what a target host runs.
+
+FROM ubuntu:24.04
+
+ARG WEBMIN_VERSION=2.653
+
+RUN apt-get update \
+ && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+      ca-certificates \
+      curl \
+      openvpn \
+      easy-rsa \
+      openssl \
+      python3 \
+ && curl -sSLo /tmp/webmin.deb \
+      "https://github.com/webmin/webmin/releases/download/${WEBMIN_VERSION}/webmin_${WEBMIN_VERSION}_all.deb" \
+ && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends /tmp/webmin.deb \
+ && rm -f /tmp/webmin.deb \
+ && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /src
+COPY tools /src/tools
+COPY tests /src/tests
+COPY Makefile cicd-common.mk /src/
+COPY openvpn-server /src/openvpn-server
+
+# The tools have to be where the module's default configuration expects them,
+# because the stage exercises the module as shipped rather than a rewired copy.
+RUN install -m 0755 /src/tools/vpn-client /usr/local/sbin/vpn-client \
+ && install -m 0755 /src/tools/vpn-server /usr/local/sbin/vpn-server \
+ && mkdir -p /var/log/openvpn
+
+# Build a server and issue a client, then run the stage against it. systemctl
+# is faked for the duration: there is no init system here, and the stage is
+# about the module rather than about the unit.
+COPY tests/docker/webmin-entrypoint.sh /usr/local/bin/webmin-entrypoint.sh
+ENTRYPOINT ["bash", "/usr/local/bin/webmin-entrypoint.sh"]

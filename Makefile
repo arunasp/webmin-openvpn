@@ -56,7 +56,7 @@ EASYRSA_REPO   = https://github.com/OpenVPN/easy-rsa.git
 EASYRSA_CLONE  = .easyrsa/easy-rsa
 EASYRSA_REAL   = $(EASYRSA_CLONE)/easyrsa3/easyrsa
 
-.PHONY: perldeps easyrsa webmin apicheck lint scan test build verify reproducible preflight e2e e2e-matrix e2e-tunnel all clean distclean
+.PHONY: perldeps easyrsa webmin apicheck lint scan test build verify reproducible preflight e2e e2e-matrix e2e-tunnel e2e-webmin all clean distclean
 
 # Sentinel, deliberately NOT in .PHONY: a phony listing would reinstall 37
 # distributions on every invocation.
@@ -164,6 +164,24 @@ e2e-matrix: verify $(EASYRSA_REAL) ## Run e2e against every ref in EASYRSA_REFS
 	  git -C $(EASYRSA_CLONE) -c advice.detachedHead=false checkout -q "$$ref" || exit 1; \
 	  bash tests/e2e-real.sh $(EASYRSA_REAL) || exit 1; \
 	done
+
+# Installs the built package into a real Webmin and drives the module over
+# HTTP: the client list, the download page, the profile itself and the
+# refusals. Nothing else can tell whether a page renders - the compile-time
+# stub implements nothing on purpose - and the first hand run of this found
+# JSON that broke the server panel whenever nobody was connected.
+#
+# It installs into the shared module directory and needs root, so it belongs
+# in a container. The system configuration is left alone: /etc/webmin is
+# copied and miniserv runs against the copy on a spare port.
+e2e-webmin: ## Drive the module through a real Webmin, in a container
+	@command -v docker >/dev/null 2>&1 || { \
+	  echo "docker is required: this stage installs a module into the"; \
+	  echo "shared Webmin directory and needs root."; \
+	  exit 1; \
+	}
+	docker build -q -f tests/docker/Dockerfile.webmin -t openvpn-server-webmin .
+	docker run --rm openvpn-server-webmin
 
 # The only stage that proves the software does what it is for: a real server,
 # a real client, and a certificate that stops working when it is revoked.
