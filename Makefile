@@ -203,13 +203,23 @@ e2e-webmin: ## Drive the module through a real Webmin, in a container
 	  exit 1; \
 	}
 	docker build -q -f tests/docker/Dockerfile.webmin -t openvpn-server-webmin .
-	docker run --rm openvpn-server-webmin
+	docker run --rm --ulimit nproc=8192:8192 openvpn-server-webmin
 
 # The only stage that proves the software does what it is for: a real server,
 # a real client, and a certificate that stops working when it is revoked.
 # It needs a container, because a live tunnel wants a network namespace of its
 # own and root to configure an interface - neither of which belongs to a test
 # runner. Run it where a container engine exists.
+# --ulimit nproc: RLIMIT_NPROC is enforced per real UID system-wide, not per
+# container, and Docker daemon defaults can be as low as 128:256 - low enough
+# that an ordinary desktop session already exceeds it. When it is exceeded,
+# the next execve fails with EAGAIN for every binary, which reads as a broken
+# image rather than a resource limit. This applies to root as much as to any
+# other uid, so it is set regardless of who the container runs as.
+#
+# No --user here on purpose: neither container bind-mounts a host path, so
+# nothing is written outside it to be left root-owned, and both need root -
+# one for NET_ADMIN and a tun device, the other to install into Webmin.
 e2e-tunnel: ## Build a server and connect a client through it, in a container
 	@command -v docker >/dev/null 2>&1 || { \
 	  echo "docker is required for this stage; the tunnel needs its own"; \
@@ -219,6 +229,7 @@ e2e-tunnel: ## Build a server and connect a client through it, in a container
 	docker build -q -f tests/docker/Dockerfile -t openvpn-server-e2e .
 	docker run --rm --network none \
 	  --device /dev/net/tun --cap-add NET_ADMIN \
+	  --ulimit nproc=8192:8192 \
 	  openvpn-server-e2e
 
 # e2e is deliberately not in all: it downloads. Run it before trusting any
