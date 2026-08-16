@@ -5,7 +5,8 @@ include /etc/cicd-common.mk
 endif
 
 # Pipeline for the openvpn-server Webmin module and the shell tools it wraps.
-# Run through cicd_runner: make perldeps once, then make all.
+# Run through cicd_runner: make perldeps once, then make all. make e2e when a
+# change touches init, because only that stage sees the real easy-rsa.
 #
 # deploy is deliberately absent. Installing to /usr/share/webmin on the
 # bastion needs ssh credentials no worker has, so it is driven from outside
@@ -27,7 +28,17 @@ CPANM      = .cpanm/cpanm
 # module can be checked anywhere but a host with Webmin installed.
 PERL_ENV   = PERL5LIB=$(CURDIR)/$(PERL_LIB):$(CURDIR)/tests/stubs
 
-.PHONY: perldeps lint scan test build verify e2e all clean distclean
+# The real easy-rsa, pinned and checksummed, cached on the project tree like
+# every other dependency here. e2e needs the genuine tool: the suite's fake
+# cannot prove that easy-rsa honours what init asks it for, and that is
+# exactly where a defect hid once already.
+EASYRSA_VERSION ?= 3.1.7
+EASYRSA_SHA256  ?= aaa48fadcbb77511b9c378554ef3eae09f8c7bc149d6f56ba209f1c9bab98c6e
+EASYRSA_URL      = https://github.com/OpenVPN/easy-rsa/releases/download/v$(EASYRSA_VERSION)/EasyRSA-$(EASYRSA_VERSION).tgz
+EASYRSA_HOME     = .easyrsa/EasyRSA-$(EASYRSA_VERSION)
+EASYRSA_REAL     = $(EASYRSA_HOME)/easyrsa
+
+.PHONY: perldeps easyrsa lint scan test build verify e2e all clean distclean
 
 # Sentinel, deliberately NOT in .PHONY: a phony listing would reinstall 37
 # distributions on every invocation.
@@ -40,6 +51,18 @@ PERL_ENV   = PERL5LIB=$(CURDIR)/$(PERL_LIB):$(CURDIR)/tests/stubs
 	@touch .perldeps
 
 perldeps: .perldeps ## Install CPAN dependencies into ./local
+
+# The extracted binary is the target, so this runs once and not again. The
+# checksum is not decoration: an unverified download is an unpinned
+# dependency wearing a version number.
+$(EASYRSA_REAL):
+	@mkdir -p .easyrsa
+	curl -sSL -o .easyrsa/easyrsa.tgz $(EASYRSA_URL)
+	echo "$(EASYRSA_SHA256)  .easyrsa/easyrsa.tgz" | sha256sum -c -
+	tar -xzf .easyrsa/easyrsa.tgz -C .easyrsa
+	@test -x $@ || { echo "$@ missing after extraction"; exit 1; }
+
+easyrsa: $(EASYRSA_REAL) ## Fetch the pinned easy-rsa release into .easyrsa
 
 lint: scan ## Leak scan, ShellCheck, and Perl compile and policy checks
 	@test -n "$(TOOLS)" || { echo "no tools found to check"; exit 1; }
@@ -69,12 +92,15 @@ build: ## Package the module as a Webmin .wbm.gz
 verify: build ## Check the package a browser would receive
 	MODULE=$(MODULE) bash tests/verify-package.sh $(BUILD)/$(MODULE).wbm.gz
 
-e2e: verify ## Alias for verify; the real end-to-end path is a browser
+e2e: verify $(EASYRSA_REAL) ## Also run init against the real easy-rsa (needs network)
+	bash tests/e2e-real.sh $(EASYRSA_REAL)
 
-all: lint test verify ## Run every stage that currently has inputs
+# e2e is deliberately not in all: it downloads. Run it before trusting any
+# change to init, because the mocked suite cannot see what the real tool does.
+all: lint test verify ## Run every stage that needs no network
 
 clean: ## Remove build artifacts
 	rm -rf $(BUILD)
 
-distclean: clean ## Also remove the cached CPAN install and its download cache
-	rm -rf local .cpanm .perldeps
+distclean: clean ## Also remove cached dependencies and their download caches
+	rm -rf local .cpanm .perldeps .easyrsa

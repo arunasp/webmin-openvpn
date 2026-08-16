@@ -4,6 +4,7 @@ build/
 local/
 .cpanm/
 .perldeps
+.easyrsa/
 
 # Never, under any circumstance, in a public repository.
 *.key

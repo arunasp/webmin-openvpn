@@ -238,15 +238,25 @@ cmd_set_port() {
 # Distributions put easy-rsa in several places and the module's own directory
 # may already hold a copy. Prefer an explicit setting, then a local copy, then
 # the usual system locations - and fail loudly rather than guessing.
+# init runs easyrsa after cd-ing into the PKI directory, so a relative path
+# would resolve against the wrong directory and fail with nothing but
+# "init-pki failed". Every candidate is returned absolute.
+abs_path() {
+    local dir base
+    dir=$(cd "$(dirname "$1")" 2>/dev/null && pwd) || return 1
+    base=$(basename "$1")
+    printf '%s/%s\n' "$dir" "$base"
+}
+
 find_easyrsa() {
     local dir
     if [ -n "$EASYRSA_BIN" ]; then
         [ -x "$EASYRSA_BIN" ] || return 1
-        printf '%s\n' "$EASYRSA_BIN"
+        abs_path "$EASYRSA_BIN"
         return 0
     fi
     if [ -x "$EASYRSA_DIR/easyrsa" ]; then
-        printf '%s\n' "$EASYRSA_DIR/easyrsa"
+        abs_path "$EASYRSA_DIR/easyrsa"
         return 0
     fi
     for dir in /usr/share/easy-rsa /usr/local/share/easy-rsa /usr/share/easyrsa; do
@@ -340,7 +350,7 @@ EOF
 
 cmd_init() {
     local host='' port=1194 proto=udp cn=server curve=secp384r1
-    local net=10.8.0.0 mask=255.255.255.0 route='' dns='' easyrsa
+    local net=10.8.0.0 mask=255.255.255.0 route='' dns='' easyrsa easyrsa_src
     while [ $# -gt 0 ]; do
         case "$1" in
             --host) host=${2:?--host needs a value}; shift 2 ;;
@@ -387,15 +397,48 @@ cmd_init() {
         return 1
     }
 
+    # EASY-RSA DEFAULTS TO RSA 2048. Verified against easy-rsa 3.1.7: with
+    # these unset, build-ca produces rsaEncryption 2048 bit.
+    export EASYRSA_ALGO=ec
+    export EASYRSA_CURVE=$curve
+
     mkdir -p "$EASYRSA_DIR" "$SERVER_DIR/pki" "$CLIENT_DIR" || return 1
     chmod 700 "$CLIENT_DIR"
 
-    # EASY-RSA DEFAULTS TO RSA 2048. Without these two variables a server built
-    # here would get RSA keys while every other part of this project - the
-    # profiles, the docs, the suite's own fixture - is EC. Verified against
-    # easy-rsa 3.1.7: unset, build-ca produces rsaEncryption 2048 bit.
-    export EASYRSA_ALGO=ec
-    export EASYRSA_CURVE=$curve
+    # Give the CA directory the shape make-cadir produces: the easyrsa entry
+    # point and x509-types symlinked in, openssl-easyrsa.cnf and vars copied.
+    # This is not cosmetic. easy-rsa resolves its own support files relative to
+    # the path it was invoked by, and vpn-client runs ./easyrsa from this
+    # directory - so without the symlink a server built here could never issue
+    # a client, which is exactly what the end-to-end stage caught.
+    easyrsa_src=$(dirname "$easyrsa")
+    ln -sfn "$easyrsa" "$EASYRSA_DIR/easyrsa"
+    if [ -d "$easyrsa_src/x509-types" ]; then
+        ln -sfn "$easyrsa_src/x509-types" "$EASYRSA_DIR/x509-types"
+    fi
+    if [ -f "$easyrsa_src/openssl-easyrsa.cnf" ]; then
+        cp -a "$easyrsa_src/openssl-easyrsa.cnf" "$EASYRSA_DIR/"
+    fi
+    # vars is where the algorithm belongs, not only in this script's
+    # environment: easy-rsa sources it on every invocation, so vpn-client and
+    # anyone running ./easyrsa by hand inherit the same settings. Exporting
+    # them from here alone would make EC a property of how the CA happened to
+    # be created rather than a property of the CA directory.
+    if [ ! -f "$EASYRSA_DIR/vars" ]; then
+        cat > "$EASYRSA_DIR/vars" <<EOF
+# Easy-RSA settings, written by vpn-server init.
+# Elliptic curve rather than RSA: smaller keys, faster handshakes, and
+# noticeably lighter on a phone holding an always-on tunnel.
+set_var EASYRSA_ALGO           $EASYRSA_ALGO
+set_var EASYRSA_CURVE          $EASYRSA_CURVE
+set_var EASYRSA_CA_EXPIRE      3650
+set_var EASYRSA_CERT_EXPIRE    1080
+set_var EASYRSA_CRL_DAYS       3650
+set_var EASYRSA_DIGEST         "sha512"
+set_var EASYRSA_BATCH          "1"
+EOF
+    fi
+    easyrsa=$EASYRSA_DIR/easyrsa
 
     echo "building the certificate authority ($EASYRSA_ALGO $EASYRSA_CURVE)..."
     ( cd "$EASYRSA_DIR" && "$easyrsa" --batch init-pki ) >/dev/null 2>&1 ||
