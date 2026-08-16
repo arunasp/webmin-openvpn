@@ -67,6 +67,24 @@ one. The tool says so plainly rather than implying otherwise, because an
 operator who believes only one client was affected will be wrong at the worst
 possible moment.
 
+## The configuration locks down once it works
+
+What makes editing `server.conf` from a browser dangerous is losing a VPN
+that people are using. That danger does not exist before the server runs,
+and that is exactly when editing is needed: a first configuration that will
+not start has to be fixable from the same place it was written.
+
+So the server page follows the state. While the daemon is down it offers the
+configuration for replacement, through `vpn-server apply-config` - which
+backs up, installs, restarts, and puts the old file back if the server
+refuses to come up. Once the daemon is up the same page shows the file and
+nothing more, and `set-port` remains the guarded way to change the setting
+anyone actually changes.
+
+The check is on the server side, not only in the page that links to it. A
+form submitted from a tab left open before the server started would
+otherwise arrive after it, which is the moment the restriction exists for.
+
 ## Elliptic curve by default, recorded where it survives
 
 easy-rsa defaults to RSA 2048. `vpn-server init` writes `EASYRSA_ALGO` and

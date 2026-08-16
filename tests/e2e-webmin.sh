@@ -214,6 +214,56 @@ done
 assert_file_contains "and names a remote" "$tmp/profile.ovpn" "^remote "
 
 echo
+echo "== the server page"
+fetch -o "$tmp/server.html" "$base/server.cgi"
+srv=$(cat "$tmp/server.html")
+assert_contains "it names the unit" "$srv" "openvpn-server@"
+assert_contains "it offers the port form" "$srv" "set_port.cgi"
+assert_contains "it shows the configuration" "$srv" "tls-crypt"
+assert_not_contains "and no tool failure" "$srv" "could not parse"
+# systemctl is faked as active in this container, so the configuration must
+# be read-only: the editing form appears only while the server is down.
+assert_not_contains "a running server offers no configuration editor" \
+    "$srv" "apply_config.cgi"
+# And the guard is server-side: posting to it anyway is refused.
+fetch -o "$tmp/apply.html" --data "config=ca pki/ca.crt&confirm=1" \
+    "$base/apply_config.cgi"
+assert_contains "and refuses a post while it is running" \
+    "$(cat "$tmp/apply.html")" "The server is running"
+
+echo
+echo "== adding a client through the module"
+fetch -o "$tmp/add.html" -w '%{http_code}' \
+    --data "name=webui-client" "$base/add.cgi" > "$tmp/add.code"
+if vpn-client list --json | grep -q '"name":"webui-client"'; then
+    pass "the client the page created exists in the PKI"
+else
+    fail "the client the page created exists in the PKI" \
+         "$(tail -3 "$tmp/add.html" 2>/dev/null | tr '\n' ' ')"
+fi
+fetch -o "$tmp/idx2.html" "$base/"
+assert_contains "and appears on the page" "$(cat "$tmp/idx2.html")" "webui-client"
+
+echo
+echo "== revoking asks first, then revokes"
+fetch -o "$tmp/rev1.html" "$base/revoke.cgi?name=webui-client"
+rev=$(cat "$tmp/rev1.html")
+assert_contains "the confirmation warns every session drops" "$rev" \
+    "disconnects every client currently connected"
+assert_contains "and that it cannot be undone" "$rev" "cannot be undone"
+if vpn-client list --json | grep -q '"name":"webui-client","state":"valid"'; then
+    pass "asking did not revoke anything"
+else
+    fail "asking did not revoke anything" "the client is no longer valid"
+fi
+fetch -o "$tmp/rev2.html" --data "name=webui-client&confirm=1" "$base/revoke.cgi"
+if vpn-client list --json | grep -q '"name":"webui-client","state":"REVOKED"'; then
+    pass "confirming revoked it"
+else
+    fail "confirming revoked it" "$(tail -3 "$tmp/rev2.html" | tr '\n' ' ')"
+fi
+
+echo
 echo "== refusals"
 for bad in '../../../etc/passwd' 'no-such-client' 'bad name'; do
     fetch -o "$tmp/bad.html" "$base/download.cgi?name=$(printf '%s' "$bad" | sed 's/ /%20/g')"

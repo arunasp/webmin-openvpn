@@ -65,7 +65,9 @@ fi
 
 echo
 echo "== contents"
-for want in module.info config.info config lang/en openvpn-server-lib.pl index.cgi install_check.pl download.cgi; do
+for want in module.info config.info config lang/en openvpn-server-lib.pl \
+            index.cgi install_check.pl download.cgi add.cgi revoke.cgi \
+            server.cgi set_port.cgi apply_config.cgi; do
     case "$listing" in
         *"$module/$want"*) pass "package contains $want" ;;
         *) fail "package contains $want" "not in $package" ;;

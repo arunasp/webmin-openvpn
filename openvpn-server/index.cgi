@@ -30,6 +30,7 @@ else {
 	print &ui_table_row($text{'srv_crl'},
 			    $server->{'crl_next_update'} || '-');
 	print &ui_table_end();
+	print "<p><a href='server.cgi'>$text{'index_server_link'}</a></p>\n";
 	}
 
 my ($data, $err) = &client_list();
