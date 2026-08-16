@@ -76,14 +76,31 @@ if ($@ || !$data) {
 return ($data, undef);
 }
 
+# A packaged install puts the tools in /usr/sbin, because Debian policy
+# forbids a package writing to /usr/local; a manual install conventionally
+# uses /usr/local/sbin. Rather than make the operator correct the module
+# configuration after choosing one, take the configured path when it is there
+# and look in the usual places when it is not.
+sub tool_path
+{
+my ($configured) = @_;
+return $configured if ($configured && -x $configured);
+my ($name) = $configured =~ m{([^/]+)$};
+$name ||= $configured;
+foreach my $dir ('/usr/sbin', '/usr/local/sbin', '/sbin', '/usr/bin') {
+	return "$dir/$name" if (-x "$dir/$name");
+	}
+return $configured;
+}
+
 sub client_list
 {
-return &tool_json($config{'vpn_client'}, 'list', '--json');
+return &tool_json(&tool_path($config{'vpn_client'}), 'list', '--json');
 }
 
 sub server_status
 {
-return &tool_json($config{'vpn_server'}, 'status', '--json');
+return &tool_json(&tool_path($config{'vpn_server'}), 'status', '--json');
 }
 
 # A name that reaches a certificate, a filename and a URL. Anything outside

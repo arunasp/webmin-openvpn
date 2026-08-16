@@ -1,0 +1,20 @@
+Package: openvpn-server-tools
+Version: @VERSION@
+Section: net
+Priority: optional
+Architecture: all
+Depends: bash, openvpn (>= 2.4), easy-rsa (>= 3.1), openssl
+Maintainer: openvpn-server-tools maintainers <noreply@users.noreply.github.com>
+Homepage: https://github.com/arunasp/webmin-openvpn
+Description: Command-line tools for an easy-rsa 3 OpenVPN server
+ vpn-client manages the client lifecycle - list, add, revoke, show and
+ regenerate profiles - against an easy-rsa 3 certificate authority, issuing
+ unified .ovpn profiles that current OpenVPN clients import as a single file.
+ .
+ vpn-server owns the server side: status, configuration display, guarded
+ configuration changes that roll back if the daemon refuses them, and
+ building a server from nothing.
+ .
+ These are the tools the Webmin OpenVPN module drives. Installing them is
+ enough to manage a server from a shell; the module itself is installed
+ through Webmin.

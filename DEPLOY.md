@@ -61,22 +61,54 @@ point at, verify and reinstall identically later. The build is reproducible,
 so the checksum is the whole guarantee: the same tag produces the same bytes.
 
 The assets are plain files behind plain URLs. A server needs no git, no
-GitHub CLI and no account:
+GitHub CLI and no account. There are three ways in; pick one.
+
+### The installer
+
+Fetches every asset, verifies all of them against `SHA256SUMS`, installs the
+tools and prints the URL to hand Webmin for the module:
 
 ```sh
 REL=https://github.com/arunasp/webmin-openvpn/releases/download/v1.0.42
+curl -fsSLO $REL/install.sh
+curl -fsSLO $REL/SHA256SUMS
+sha256sum --ignore-missing -c SHA256SUMS   # check the installer first
+sudo TAG=v1.0.42 sh install.sh
+```
 
-curl -fsSLO $REL/openvpn-server-1.0.42.wbm.gz
+Verify before running, rather than piping a URL into a shell. The installer
+is deliberately narrow: it installs files and nothing else - no certificate
+authority, no server configuration, no decisions of its own.
+
+### The package
+
+On Debian or Ubuntu, the tools are also a `.deb`, which gives dependency
+checking on openvpn and easy-rsa and a clean removal:
+
+```sh
+curl -fsSLO $REL/openvpn-server-tools_1.0.42_all.deb
+curl -fsSLO $REL/SHA256SUMS
+sha256sum --ignore-missing -c SHA256SUMS
+sudo apt install ./openvpn-server-tools_1.0.42_all.deb
+```
+
+It installs into `/usr/sbin`, because Debian policy reserves `/usr/local`
+for the administrator. The module looks in both, so nothing needs
+reconfiguring either way. `apt remove openvpn-server-tools` takes it back
+out; a certificate authority it created is left alone, as it should be.
+
+### By hand
+
+```sh
 curl -fsSLO $REL/vpn-client
 curl -fsSLO $REL/vpn-server
 curl -fsSLO $REL/SHA256SUMS
-
-# verify all three before anything is installed
-sha256sum -c SHA256SUMS
+sha256sum --ignore-missing -c SHA256SUMS
 ```
 
-Substitute the tag you intend to deploy; `curl -f` fails on a missing asset
-rather than saving an error page as if it were a package.
+Then install them as below. `curl -f` matters in all three: without it a
+missing asset is saved as an error page and installed as though it were a
+program.
 
 ## Installing the tools
 

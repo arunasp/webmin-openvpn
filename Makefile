@@ -66,7 +66,7 @@ EASYRSA_REPO   = https://github.com/OpenVPN/easy-rsa.git
 EASYRSA_CLONE  = .easyrsa/easy-rsa
 EASYRSA_REAL   = $(EASYRSA_CLONE)/easyrsa3/easyrsa
 
-.PHONY: perldeps easyrsa webmin apicheck lint scan test build dist verify reproducible preflight version e2e e2e-matrix e2e-tunnel e2e-webmin all clean distclean
+.PHONY: perldeps easyrsa webmin apicheck lint scan test build deb dist verify reproducible preflight version e2e e2e-matrix e2e-tunnel e2e-webmin all clean distclean
 
 version: ## Print the release version this build would produce
 	@echo "release  $(RELEASE_VERSION)"
@@ -161,15 +161,39 @@ verify: build ## Check the package against what Webmin's installer requires
 	  bash tests/verify-package.sh $(PACKAGE)
 	@$(MAKE) --no-print-directory reproducible
 
+# A distribution package for the two tools, so a server can install them the
+# way it installs anything else - with dependencies the package manager
+# enforces and a clean removal path.
+#
+# /usr/sbin rather than /usr/local/sbin: Debian policy reserves /usr/local for
+# the administrator and a package must not write there. The module resolves
+# either location, so the choice costs the operator nothing.
+DEB_NAME    = openvpn-server-tools
+DEB_FILE    = $(BUILD)/$(DEB_NAME)_$(RELEASE_VERSION)_all.deb
+
+deb: ## Build a .deb of the two tools
+	@command -v dpkg-deb >/dev/null 2>&1 || { \
+	  echo "dpkg-deb is required to build a package"; exit 1; \
+	}
+	@rm -rf $(BUILD)/deb
+	@mkdir -p $(BUILD)/deb/DEBIAN $(BUILD)/deb/usr/sbin
+	@sed 's/@VERSION@/$(RELEASE_VERSION)/' packaging/deb/control.in \
+	  > $(BUILD)/deb/DEBIAN/control
+	@install -m 0755 tools/vpn-client tools/vpn-server $(BUILD)/deb/usr/sbin/
+	dpkg-deb --root-owner-group --build $(BUILD)/deb $(DEB_FILE)
+	@dpkg-deb -I $(DEB_FILE) | sed -n '2,7p'
+
 # Everything a server installs, in one place with one checksum file. The
 # module ships as a package; the two tools do not, and a server that takes
 # them from anywhere else is running half a release. A target host has no
 # git and no gh, so the assets have to be plain files behind plain URLs.
-dist: build ## Assemble the release assets and their checksums
+dist: build deb ## Assemble the release assets and their checksums
 	@rm -rf $(BUILD)/dist
 	@mkdir -p $(BUILD)/dist
 	@cp $(PACKAGE) $(BUILD)/dist/
+	@cp $(DEB_FILE) $(BUILD)/dist/
 	@cp tools/vpn-client tools/vpn-server $(BUILD)/dist/
+	@cp packaging/install.sh $(BUILD)/dist/
 	@cd $(BUILD)/dist && sha256sum * > SHA256SUMS
 	@ls -l $(BUILD)/dist
 	@cat $(BUILD)/dist/SHA256SUMS

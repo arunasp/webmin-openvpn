@@ -23,7 +23,8 @@ do 'openvpn-server-lib.pl';
 
 sub is_installed
 {
-return -x $config{'vpn_client'} && -x $config{'vpn_server'} ? 2 : 0;
+return -x &tool_path($config{'vpn_client'}) &&
+       -x &tool_path($config{'vpn_server'}) ? 2 : 0;
 }
 
 1;
