@@ -62,8 +62,20 @@ fi
 cp -a "$WEBMIN_ETC" "$tmp/etc"
 mkdir -p "$tmp/etc/$module"
 cp "$WEBMIN_ROOT/$module/config" "$tmp/etc/$module/config"
-if [ -f "$tmp/etc/webmin.acl" ]; then
-    sed -i "s|^root:.*|& $module|" "$tmp/etc/webmin.acl"
+# The grant has to happen whether or not a root: line already exists. A
+# fresh install may have none, and a sed that matches nothing leaves every
+# page answering "user root is not allowed to use" - which is what the first
+# CI run of this stage did.
+acl=$tmp/etc/webmin.acl
+if [ -f "$acl" ] && grep -q "^root:" "$acl"; then
+    sed -i "s|^root:.*|& $module|" "$acl"
+else
+    echo "root: $module" >> "$acl"
+fi
+if grep -q "^root:.*$module" "$acl"; then
+    pass "the module is granted to root"
+else
+    fail "the module is granted to root" "$(grep "^root:" "$acl" | cut -c1-120)"
 fi
 
 # Session authentication would need a login round trip; this asks for HTTP
@@ -105,6 +117,14 @@ fi
 echo
 echo "== the client list"
 index=$(cat "$tmp/index.html")
+if ! printf "%s" "$index" | grep -q "VPN clients"; then
+    echo "---- what the page actually said ----"
+    printf "%s" "$index" | sed -e "s/<[^>]*>/ /g" -e "s/  */ /g" |
+        grep -viE "^ *$" | tail -5
+    echo "---- webmin.acl root line ----"
+    grep "^root:" "$acl" | cut -c1-200
+    echo "-------------------------------------"
+fi
 assert_contains "the page is the module, not an error" "$index" "VPN clients"
 assert_not_contains "no access denial" "$index" "not allowed to use"
 assert_not_contains "no tool failure" "$index" "could not parse"
