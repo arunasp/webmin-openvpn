@@ -87,6 +87,34 @@ else
 fi
 
 echo
+echo "== one commit per change"
+# A branch is read as history once it is pushed, and rewriting it after that
+# costs everyone who has fetched it. Before the push it costs nothing, so the
+# tidying happens here: a commit that fixes one already on the branch belongs
+# inside it, not after it.
+#
+# Two shapes are mechanical. A message marked as a fixup was never meant to
+# survive. And several commits sharing a subject scope - the text before the
+# colon - are usually one change told in instalments, which is a note rather
+# than a failure, because a scope can legitimately change twice in a branch.
+wip=$(git log --format='%h %s' "${range[@]}" |
+      grep -iE '^[0-9a-f]+ (fixup!|squash!|wip[: ]|tmp[: ]|amend[: ])' || true)
+if [ -z "$wip" ]; then
+    pass "no fixup, squash or wip commits"
+else
+    fail "no fixup, squash or wip commits" "$(printf '%s' "$wip" | tr '\n' ' ')"
+fi
+
+dupes=$(git log --format=%s "${range[@]}" | sed -n 's/^\([a-z0-9-]*\):.*/\1/p' |
+        sort | uniq -d | tr '\n' ' ')
+if [ -z "$dupes" ]; then
+    pass "each subject scope appears once"
+else
+    echo "[note] more than one commit under: $dupes"
+    echo "       squash them if they are one change told in instalments"
+fi
+
+echo
 echo "== commit messages"
 # The same scanner, applied to the messages. Naming providers in a denylist
 # here would have put the very strings this is meant to keep out into a file

@@ -173,6 +173,24 @@ itself.
 
 ## Commits
 
+One commit per change, and the branch is tidied before it is pushed rather
+than after. A commit that fixes one already on the branch belongs inside it:
+rewriting is free while nothing has fetched the branch, and costs everyone
+once something has.
+
+    git rebase -i origin/dev     # fixup the follow-ups into what they fix
+    make preflight
+
+`make preflight` fails on a commit still marked `fixup!`, `squash!` or
+`wip`, and notes when several commits share a subject scope - usually one
+change told in instalments, though a scope can legitimately change twice in
+a branch, which is why it is a note.
+
+An atomic commit is one that could be reverted on its own and leaves the
+tree working either way: the code, its tests, and the documentation it
+invalidates, together. Split across commits, a bisect lands on a state that
+fails for a reason nobody chose.
+
 Describe the reasoning, not the diff: what was wrong, what changed, and why
 that is the right place for the change. Where a defect was found by a specific
 check, say which - that is what tells the next reader whether the check is
