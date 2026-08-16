@@ -185,8 +185,8 @@ cmd_set_port() {
     cur_proto=$(conf_value proto)
     [ -n "$proto" ] || proto=$cur_proto
     case "$proto" in
-        udp|tcp) ;;
-        *) echo "protocol must be udp or tcp" >&2; return 1 ;;
+        udp|tcp|udp6|tcp6) ;;
+        *) echo "protocol must be udp, tcp, udp6 or tcp6" >&2; return 1 ;;
     esac
     if [ "$port" = "$cur_port" ] && [ "$proto" = "$cur_proto" ]; then
         echo "already listening on $cur_port/$cur_proto - nothing to do"
@@ -204,7 +204,7 @@ cmd_set_port() {
         cp -a "$UPNP_DEFAULTS" "$UPNP_DEFAULTS.rollback"
         cp -a "$UPNP_DEFAULTS" "$UPNP_DEFAULTS.bak-$(timestamp)"
         sed -i -e "s/^PORT=.*/PORT=$port/" \
-               -e "s/^PROTO=.*/PROTO=$(printf '%s' "$proto" | tr '[:lower:]' '[:upper:]')/" \
+               -e "s/^PROTO=.*/PROTO=$(printf '%s' "${proto%6}" | tr '[:lower:]' '[:upper:]')/" \
                "$UPNP_DEFAULTS"
     fi
 
@@ -359,7 +359,7 @@ EOF
 }
 
 cmd_init() {
-    local host='' port=1194 proto=udp cn=server curve=secp384r1
+    local host='' port=1194 proto=auto cn=server curve=secp384r1
     local net=10.8.0.0 mask=255.255.255.0 route='' dns='' easyrsa easyrsa_src
     while [ $# -gt 0 ]; do
         case "$1" in
@@ -385,7 +385,26 @@ cmd_init() {
         echo "port must be between 1 and 65535" >&2
         return 1
     fi
-    case "$proto" in udp|tcp) ;; *) echo "protocol must be udp or tcp" >&2; return 1 ;; esac
+    # udp6 and tcp6 open a dual-stacked socket that accepts both families;
+    # plain udp and tcp bind one family only, in practice IPv4, which leaves a
+    # client on an IPv6-only mobile network unable to reach the server at all.
+    # Verified on Ubuntu 24.04: an AF_INET6 socket with IPV6_V6ONLY unset
+    # receives IPv4 datagrams as ::ffff: addresses.
+    #
+    # Detected rather than assumed, because a host with IPv6 disabled in the
+    # kernel cannot bind udp6 and the server would refuse to start.
+    if [ "$proto" = auto ]; then
+        if [ -e /proc/net/if_inet6 ]; then
+            proto=udp6
+        else
+            proto=udp
+            echo "note: no IPv6 on this host, listening on IPv4 only" >&2
+        fi
+    fi
+    case "$proto" in
+        udp|tcp|udp6|tcp6) ;;
+        *) echo "protocol must be udp, tcp, udp6 or tcp6" >&2; return 1 ;;
+    esac
     valid_hostname "$cn" || { echo "--cn: letters, digits, dot and hyphen only" >&2; return 1; }
     case "$curve" in
         ''|*[!a-zA-Z0-9]*) echo "--curve: letters and digits only" >&2; return 1 ;;

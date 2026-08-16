@@ -44,7 +44,10 @@ if [ -r "$server_conf" ]; then
     conf_port=$(awk '$1 == "port" { p = $2 } END { print p }' "$server_conf")
     conf_proto=$(awk '$1 == "proto" { p = $2 } END { print p }' "$server_conf")
     [ -n "$conf_port" ] && REMOTE_PORT=$conf_port
-    [ -n "$conf_proto" ] && REMOTE_PROTO=$conf_proto
+    # The server may listen dual-stack as udp6; a client profile saying udp6
+    # would force the client onto IPv6 and fail wherever there is none. The
+    # profile names the transport, and the client picks the family from DNS.
+    [ -n "$conf_proto" ] && REMOTE_PROTO=${conf_proto%6}
     # The server's own certificate appears in index.txt beside the clients.
     # Derive its name from the config rather than hardcoding one, so this is
     # correct on any site and names none.

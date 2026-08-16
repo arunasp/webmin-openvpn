@@ -402,6 +402,38 @@ assert_not_contains "the server certificate is not listed as a client" \
     "$OUT" "gateway"
 
 echo
+echo "== init: the listening family is detected, not assumed"
+# A dual-stacked socket (udp6) accepts both families; plain udp binds one, in
+# practice IPv4, leaving an IPv6-only client unable to reach the server. But a
+# host with IPv6 disabled cannot bind udp6 at all, so init detects rather than
+# hardcodes. Both branches are exercised here by pointing the probe at a path
+# that does or does not exist.
+root=$(new_bare_fixture modern)
+run_init "$root" --host vpn.example.com
+if [ -e /proc/net/if_inet6 ]; then
+    assert_file_contains "on an IPv6-capable host it listens dual-stack" \
+        "$root/server/server.conf" "^proto udp6"
+else
+    assert_file_contains "with IPv6 unavailable it falls back to IPv4" \
+        "$root/server/server.conf" "^proto udp"
+fi
+
+root=$(new_bare_fixture modern)
+run_init "$root" --host vpn.example.com --proto udp6
+assert_exit "init accepts an explicit udp6" 0 "$RC"
+assert_file_contains "and writes it" "$root/server/server.conf" "^proto udp6"
+
+# The profile must not inherit the suffix: udp6 in a client config forces the
+# client onto IPv6 and fails wherever there is none.
+# A bare fixture has no clients yet, so issue one from the server just built.
+run_client "$root" add dualstack-probe >/dev/null
+assert_file_contains "the profile names plain udp, not udp6" \
+    "$root/clients/dualstack-probe.ovpn" "^proto udp$"
+
+run_init "$root" --host vpn.example.com --proto sctp6
+assert_exit "init still rejects an unknown protocol" 1 "$RC"
+
+echo
 echo "== init: refusals"
 run_init "$root" --host vpn.example.com
 assert_exit "init refuses to overwrite an existing server" 1 "$RC"
