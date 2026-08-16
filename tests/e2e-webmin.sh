@@ -78,6 +78,14 @@ else
     fail "the module is granted to root" "$(grep "^root:" "$acl" | cut -c1-120)"
 fi
 
+# miniserv.conf names the configuration directory the CGIs will read, in
+# env_WEBMIN_CONFIG, and every other path in it is absolute too. Copying the
+# directory is therefore not enough: without repointing those, miniserv runs
+# from the copy while the module reads its ACL and configuration from the
+# original, and the module answers "user root is not allowed to use" no matter
+# what the copy says. Repoint them all at the copy.
+sed -i "s|$WEBMIN_ETC|$tmp/etc|g" "$tmp/etc/miniserv.conf"
+
 # Session authentication would need a login round trip; this asks for HTTP
 # authentication instead, on a copy of the configuration.
 # Its own port, its own pidfile and its own logs: miniserv refuses to start
