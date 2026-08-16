@@ -199,6 +199,21 @@ assert_contains "an IPv4-mapped peer reaches the module as a plain address" \
 assert_not_contains "without the mapped prefix" "$OUT" "::ffff:"
 sed -i 's/,::ffff:203.0.113.9:/,203.0.113.9:/' "$root/log/status.log"
 
+# easy-rsa moves a revoked certificate out of issued/ into
+# revoked/certs_by_serial/, so reading the certificate leaves a revoked client
+# with no expiry at all - which is what a production install showed. index.txt
+# keeps both dates whatever the state.
+run_client "$root" list
+assert_contains "a revoked client still shows its expiry" "$OUT" \
+    "REVOKED 2026-08-15"
+run_client "$root" list --json
+assert_eq "json: the revoked date is reported" "2026-08-15 19:56 UTC" \
+    "$(printf '%s' "$OUT" | json_field clients.2.revoked)"
+assert_eq "json: and its expiry is not empty" "2029-07-30 18:56 UTC" \
+    "$(printf '%s' "$OUT" | json_field clients.2.expires)"
+assert_eq "json: a valid client has no revoked date" "None" \
+    "$(printf '%s' "$OUT" | json_field clients.0.revoked)"
+
 echo
 echo "== vpn-client: the root gate"
 run_client "$root" regen --all
