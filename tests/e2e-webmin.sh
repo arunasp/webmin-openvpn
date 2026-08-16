@@ -66,6 +66,24 @@ cp "$WEBMIN_ROOT/$module/config" "$tmp/etc/$module/config"
 # fresh install may have none, and a sed that matches nothing leaves every
 # page answering "user root is not allowed to use" - which is what the first
 # CI run of this stage did.
+# If the source configuration already grants the module, the copy inherits
+# that and the grant below is never exercised - which is precisely how a
+# broken grant survived every local run while failing in CI, where the
+# install is always fresh. Say so rather than reporting a pass that covers
+# less than it appears to.
+if grep -q "^root:.*$module" "$WEBMIN_ETC/webmin.acl" 2>/dev/null; then
+    echo "[note] $WEBMIN_ETC already grants $module, so this run does not"
+    echo "       exercise the grant step. A fresh install does."
+fi
+# If the source configuration already grants the module, the copy inherits
+# that and the grant below is never exercised - which is precisely how a
+# broken grant survived every local run while failing in CI, where the
+# install is always fresh. Say so rather than reporting a pass that covers
+# less than it appears to.
+if grep -q "^root:.*$module" "$WEBMIN_ETC/webmin.acl" 2>/dev/null; then
+    echo "[note] $WEBMIN_ETC already grants $module, so this run does not"
+    echo "       exercise the grant step. A fresh install does."
+fi
 acl=$tmp/etc/webmin.acl
 if [ -f "$acl" ] && grep -q "^root:" "$acl"; then
     sed -i "s|^root:.*|& $module|" "$acl"
@@ -84,7 +102,12 @@ fi
 # from the copy while the module reads its ACL and configuration from the
 # original, and the module answers "user root is not allowed to use" no matter
 # what the copy says. Repoint them all at the copy.
-sed -i "s|$WEBMIN_ETC|$tmp/etc|g" "$tmp/etc/miniserv.conf"
+# Repoint whatever directory the file itself names, not whatever WEBMIN_ETC
+# happens to be: a configuration copied from elsewhere still carries the
+# original absolute paths, and keying off WEBMIN_ETC would replace nothing.
+old_etc=$(sed -n 's/^env_WEBMIN_CONFIG=//p' "$tmp/etc/miniserv.conf" | head -1)
+[ -n "$old_etc" ] || old_etc=$WEBMIN_ETC
+sed -i "s|$old_etc|$tmp/etc|g" "$tmp/etc/miniserv.conf"
 
 # Session authentication would need a login round trip; this asks for HTTP
 # authentication instead, on a copy of the configuration.
