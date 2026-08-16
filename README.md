@@ -125,6 +125,14 @@ configuration page:
 | `vpn_server` | `/usr/local/sbin/vpn-server` |
 | `clients_dir` | `/etc/openvpn/clients` |
 
+The tool paths are a starting point rather than a requirement. If the
+configured path does not exist, the module looks in `/usr/sbin`,
+`/usr/local/sbin`, `/sbin` and `/usr/bin` for a tool of that name - so the
+package, which installs into `/usr/sbin`, and a manual install into
+`/usr/local/sbin` both work without editing anything here. Set the path
+explicitly if the tools live somewhere else, or if both locations have a
+copy and you need to say which one runs.
+
 Host names, paths and unit names live in `/etc/default/vpn-tools` on the
 server, never in this repository. See [DEPLOY.md](DEPLOY.md) for the full list.
 
@@ -141,14 +149,17 @@ openvpn/          the legacy third-party module, kept for reference only
 ## Development
 
 ```sh
-make help         # list targets
-make all          # leak scan, lint, suite, package and verify
-make e2e          # also test against Webmin and easy-rsa
-make preflight    # checks that must pass before pushing
+make help         # every target, with a description
+make all          # everything that needs no network
+make e2e          # adds the stages that clone Webmin and easy-rsa
+make e2e-tunnel   # a server, a client and a revoked certificate
+make e2e-webmin   # the module driven over HTTP in an installed Webmin
+make preflight    # what must pass before pushing
 ```
 
-[CONTRIBUTING.md](CONTRIBUTING.md) describes the stages, the coding standards
-and how the test doubles are used.
+The last two need a container engine. [CONTRIBUTING.md](CONTRIBUTING.md)
+describes the stages, the coding standards and how the test doubles are
+used.
 
 ## Licence
 

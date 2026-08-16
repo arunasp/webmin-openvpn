@@ -69,11 +69,11 @@ Fetches every asset, verifies all of them against `SHA256SUMS`, installs the
 tools and prints the URL to hand Webmin for the module:
 
 ```sh
-REL=https://github.com/arunasp/webmin-openvpn/releases/download/v1.0.42
+REL=https://github.com/arunasp/webmin-openvpn/releases/download/vX.Y.Z
 curl -fsSLO $REL/install.sh
 curl -fsSLO $REL/SHA256SUMS
 sha256sum --ignore-missing -c SHA256SUMS   # check the installer first
-sudo TAG=v1.0.42 sh install.sh
+sudo TAG=vX.Y.Z sh install.sh
 ```
 
 Verify before running, rather than piping a URL into a shell. The installer
@@ -86,10 +86,10 @@ On Debian or Ubuntu, the tools are also a `.deb`, which gives dependency
 checking on openvpn and easy-rsa and a clean removal:
 
 ```sh
-curl -fsSLO $REL/openvpn-server-tools_1.0.42_all.deb
+curl -fsSLO $REL/openvpn-server-tools_X.Y.Z_all.deb
 curl -fsSLO $REL/SHA256SUMS
 sha256sum --ignore-missing -c SHA256SUMS
-sudo apt install ./openvpn-server-tools_1.0.42_all.deb
+sudo apt install ./openvpn-server-tools_X.Y.Z_all.deb
 ```
 
 It installs into `/usr/sbin`, because Debian policy reserves `/usr/local`

@@ -66,7 +66,7 @@ EASYRSA_REPO   = https://github.com/OpenVPN/easy-rsa.git
 EASYRSA_CLONE  = .easyrsa/easy-rsa
 EASYRSA_SRC   = $(EASYRSA_CLONE)/easyrsa3/easyrsa
 
-.PHONY: perldeps easyrsa webmin apicheck lint scan style test build deb dist verify reproducible preflight version e2e e2e-matrix e2e-tunnel e2e-webmin all clean distclean
+.PHONY: perldeps easyrsa webmin apicheck lint scan style docs test build deb dist verify reproducible preflight version e2e e2e-matrix e2e-tunnel e2e-webmin all clean distclean
 
 version: ## Print the release version this build would produce
 	@echo "release  $(RELEASE_VERSION)"
@@ -108,7 +108,7 @@ apicheck: $(WEBMIN_REAL) ## Check every Webmin function the module calls exists
 	git -C $(WEBMIN_CLONE) -c advice.detachedHead=false checkout -q $(WEBMIN_REF)
 	MODULE=$(MODULE) bash tests/webmin-api.sh $(WEBMIN_CLONE)
 
-lint: scan style ## Leak scan, prose, ShellCheck, and Perl compile and policy checks
+lint: scan style docs ## Leak scan, prose, docs, ShellCheck, and Perl checks
 	@test -n "$(TOOLS)" || { echo "no tools found to check"; exit 1; }
 	shellcheck --shell=bash $(TOOLS) $(SUITE)
 	@for f in $(PERLSRC); do echo "perl -cw $$f"; $(PERL_ENV) perl -cw "$$f" || exit 1; done
@@ -122,6 +122,12 @@ lint: scan style ## Leak scan, prose, ShellCheck, and Perl compile and policy ch
 
 # Filler words that keep coming back. Checked rather than remembered,
 # because remembering is what failed.
+# Documentation goes stale without erroring. These are the facts in it that
+# the tree can contradict: make targets, module settings, pinned versions,
+# release examples, internal links.
+docs: ## Check documented facts against the tree
+	bash tests/docs.sh
+
 style: ## Fail on filler words in tracked files
 	bash tests/style.sh
 

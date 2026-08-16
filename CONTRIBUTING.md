@@ -13,7 +13,9 @@ which runs, in order:
 | Target | What it does |
 | --- | --- |
 | `scan` | fails if site identity or key material reached the tree |
-| `lint` | ShellCheck, `perl -cw`, and Perl::Critic |
+| `style` | fails on filler words and em dashes |
+| `docs` | checks documented facts against the tree |
+| `lint` | the three above, plus ShellCheck, `perl -cw` and Perl::Critic |
 | `test` | the suite, against a fixture site |
 | `build` | packages the module as a `.wbm.gz` |
 | `verify` | checks the package the way Webmin's installer does |
@@ -115,6 +117,17 @@ matters of convention and review.
 
 `make preflight` extends the scan to every unpushed commit and to commit
 messages, because a push publishes history, not just the checkout.
+
+## Keeping the documentation true
+
+`make docs` checks the facts the documentation states against the tree: that
+every `make` command it shows exists, that the module settings table matches
+the module's own defaults, that the Webmin and easy-rsa versions it names are
+the ones pinned in the Makefile, that release examples use a placeholder
+rather than a version that will age, and that internal links resolve.
+
+It checks facts, not prose. Nothing can tell you an explanation has stopped
+being true; this catches the parts that can be compared against something.
 
 ## Versions and releases
 
