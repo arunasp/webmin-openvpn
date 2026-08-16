@@ -37,13 +37,21 @@ PERL_ENV   = PERL5LIB=$(CURDIR)/$(PERL_LIB):$(CURDIR)/tests/stubs
 # tree the version string is the unsubstituted placeholder ~VER~ and the
 # script lives under easyrsa3/, because the tarball is a built artifact and
 # this is the source.
+# Webmin itself, pinned to the version the target host runs. The compile-time
+# stub cannot tell a real ui_* function from a typo, so this is the only check
+# that catches a call that does not exist in the release it will run on.
+WEBMIN_REF    ?= 2.653
+WEBMIN_REPO    = https://github.com/webmin/webmin.git
+WEBMIN_CLONE   = .webmin/webmin
+WEBMIN_REAL    = $(WEBMIN_CLONE)/ui-lib.pl
+
 EASYRSA_REF   ?= v3.1.7
 EASYRSA_REFS  ?= v3.1.7 v3.2.6
 EASYRSA_REPO   = https://github.com/OpenVPN/easy-rsa.git
 EASYRSA_CLONE  = .easyrsa/easy-rsa
 EASYRSA_REAL   = $(EASYRSA_CLONE)/easyrsa3/easyrsa
 
-.PHONY: perldeps easyrsa lint scan test build verify e2e e2e-matrix all clean distclean
+.PHONY: perldeps easyrsa webmin apicheck lint scan test build verify e2e e2e-matrix all clean distclean
 
 # Sentinel, deliberately NOT in .PHONY: a phony listing would reinstall 37
 # distributions on every invocation.
@@ -67,6 +75,18 @@ $(EASYRSA_REAL):
 	@test -x $@ || { echo "$@ missing after checkout"; exit 1; }
 
 easyrsa: $(EASYRSA_REAL) ## Clone easy-rsa and check out EASYRSA_REF
+
+$(WEBMIN_REAL):
+	@mkdir -p .webmin
+	git clone -q --filter=blob:none $(WEBMIN_REPO) $(WEBMIN_CLONE)
+	git -C $(WEBMIN_CLONE) -c advice.detachedHead=false checkout -q $(WEBMIN_REF)
+	@test -f $@ || { echo "$@ missing after checkout"; exit 1; }
+
+webmin: $(WEBMIN_REAL) ## Clone Webmin and check out WEBMIN_REF
+
+apicheck: $(WEBMIN_REAL) ## Check every Webmin function the module calls exists
+	git -C $(WEBMIN_CLONE) -c advice.detachedHead=false checkout -q $(WEBMIN_REF)
+	MODULE=$(MODULE) bash tests/webmin-api.sh $(WEBMIN_CLONE)
 
 lint: scan ## Leak scan, ShellCheck, and Perl compile and policy checks
 	@test -n "$(TOOLS)" || { echo "no tools found to check"; exit 1; }
@@ -96,7 +116,7 @@ build: ## Package the module as a Webmin .wbm.gz
 verify: build ## Check the package a browser would receive
 	MODULE=$(MODULE) bash tests/verify-package.sh $(BUILD)/$(MODULE).wbm.gz
 
-e2e: verify $(EASYRSA_REAL) ## Also run init against the real easy-rsa (needs network)
+e2e: verify apicheck $(EASYRSA_REAL) ## Real easy-rsa and real Webmin (needs network)
 	git -C $(EASYRSA_CLONE) -c advice.detachedHead=false checkout -q $(EASYRSA_REF)
 	bash tests/e2e-real.sh $(EASYRSA_REAL)
 
@@ -119,4 +139,4 @@ clean: ## Remove build artifacts
 	rm -rf $(BUILD)
 
 distclean: clean ## Also remove cached dependencies and their download caches
-	rm -rf local .cpanm .perldeps .easyrsa
+	rm -rf local .cpanm .perldeps .easyrsa .webmin

@@ -5,6 +5,7 @@ local/
 .cpanm/
 .perldeps
 .easyrsa/
+.webmin/
 
 # Never, under any circumstance, in a public repository.
 *.key
