@@ -5,8 +5,11 @@ include /etc/cicd-common.mk
 endif
 
 # Pipeline for the openvpn-server Webmin module and the shell tools it wraps.
-# make perldeps once, then make all. Run make e2e when a
-# change touches init, because only that stage runs easy-rsa itself.
+# make perldeps once, then make all. Beyond that: make e2e when a change
+# touches init, since that stage runs easy-rsa itself; make e2e-tunnel to
+# connect a client through a server it built; make e2e-webmin to drive the
+# module over HTTP in an installed Webmin. The last two need a container
+# engine. make help lists everything.
 #
 # There is no deploy target. Installing to /usr/share/webmin on a server
 # needs credentials no CI runner has, so it is driven from outside and

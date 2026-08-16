@@ -76,12 +76,23 @@ print "<p>$text{'down_howtointro'}</p>\n";
 # One row per platform: the client to install, and what to do with the file.
 # Kept in the interface rather than only in the documentation, because this is
 # the page someone reaches when they are about to hand a profile to a user.
-my @rows;
-foreach my $p ('windows', 'android', 'ios', 'macos', 'linux') {
-	push(@rows, [ $text{"down_${p}_os"},
-		      $text{"down_${p}_client"},
-		      $text{"down_${p}_how"} ]);
-	}
+#
+# Written out rather than built from a loop over platform names. Composing
+# the keys hid all fifteen of them from the check that every string a page
+# asks for is defined, so a typo would have rendered an empty cell that only
+# a reader of that page would ever notice.
+my @rows = (
+	[ $text{'down_windows_os'}, $text{'down_windows_client'},
+	  $text{'down_windows_how'} ],
+	[ $text{'down_android_os'}, $text{'down_android_client'},
+	  $text{'down_android_how'} ],
+	[ $text{'down_ios_os'}, $text{'down_ios_client'},
+	  $text{'down_ios_how'} ],
+	[ $text{'down_macos_os'}, $text{'down_macos_client'},
+	  $text{'down_macos_how'} ],
+	[ $text{'down_linux_os'}, $text{'down_linux_client'},
+	  $text{'down_linux_how'} ],
+	);
 print &ui_columns_table([ $text{'down_col_os'}, $text{'down_col_client'},
 			  $text{'down_col_how'} ], 100, \@rows);
 
