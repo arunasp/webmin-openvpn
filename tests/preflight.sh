@@ -15,7 +15,7 @@ set -uo pipefail
 
 here=$(cd "$(dirname "$0")" && pwd)
 repo=$(dirname "$here")
-base=${BASE:-origin/master}
+base=${BASE:-origin/main}
 # shellcheck source=tests/lib.sh
 . "$here/lib.sh"
 
