@@ -22,13 +22,13 @@ jobs:
     name: lint, scan and suite
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       # Perl::Critic is a project-local dependency, cached on the key of the
       # manifest that pins it. A cache miss costs one cpanm run, not a wrong
       # result.
       - name: Cache CPAN dependencies
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: local
           key: cpan-${{ runner.os }}-${{ hashFiles('cpanfile') }}
@@ -51,7 +51,7 @@ jobs:
           make dist BUILD_NUMBER=${{ github.run_number }}
 
       - name: Publish the package
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: webmin-module
           path: |
@@ -62,11 +62,11 @@ jobs:
     name: against real Webmin and easy-rsa
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       # Both clones are pinned by ref, so the cache key can be the ref itself.
       - name: Cache dependency checkouts
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: |
             .webmin
@@ -86,7 +86,7 @@ jobs:
     name: real tunnel, in a container
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       # The runner has a tun device already; loading the module is a no-op
       # where it is built in, and harmless where it is not.
@@ -105,7 +105,7 @@ jobs:
     name: the module in a real Webmin
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       # Installs the package into Webmin 2.653 and drives the module over
       # HTTP: the client list, the download page, the profile and the
