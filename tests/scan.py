@@ -33,7 +33,7 @@ ALLOWED_HOSTS = {
     "github.com", "www.github.com",
     "raw.githubusercontent.com", "shellcheck.net", "www.shellcheck.net",
     "openvpn.net", "community.openvpn.net", "webmin.com", "www.webmin.com",
-    "users.noreply.github.com", "noreply.anthropic.com",
+    "users.noreply.github.com", "noreply.anthropic.com", "anthropic.com",
     # Where the pipeline fetches its own tooling from.
     "cpanmin.us", "metacpan.org", "cpan.metacpan.org", "cpan.org",
     # Official client download sites, named in docs/clients.md.

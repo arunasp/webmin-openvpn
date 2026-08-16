@@ -88,18 +88,17 @@ fi
 
 echo
 echo "== commit messages"
-# The scanner reads files, not messages, and a message is published too.
-messages=$(git log --format='%H %B' "${range[@]}" 2>/dev/null)
-# \134 is the octal escape for a backslash. Written this way because a literal
-# backslash next to a closing quote is ambiguous to read and to lint.
-winpath=$(printf ':\134')
-msgleak=$(printf '%s\n' "$messages" |
-          grep -niE '[a-z0-9-]+\.(gleeze|dynu|ddns|duckdns)\.[a-z]+' || true)
-msgleak="$msgleak$(printf '%s\n' "$messages" | grep -nF "$winpath" || true)"
-if [ -z "$msgleak" ]; then
-    pass "no obvious site identity in commit messages"
+# The same scanner, applied to the messages. Naming providers in a denylist
+# here would have put the very strings this is meant to keep out into a file
+# that gets published - so the messages are written where the structural rules
+# already look, and checked with those.
+mkdir -p "$tmp/messages/docs"
+git log --format='%H %B' "${range[@]}" > "$tmp/messages/docs/commit-messages.md" 2>/dev/null
+if python3 "$here/scan.py" "$tmp/messages" > "$tmp/msgout" 2>&1; then
+    pass "no host name, address or local path in any commit message"
 else
-    fail "no obvious site identity in commit messages" "$msgleak"
+    fail "no host name, address or local path in any commit message" \
+         "$(sed -n '2,6p' "$tmp/msgout" | tr '\n' ' ')"
 fi
 
 echo
