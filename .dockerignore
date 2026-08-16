@@ -1,0 +1,25 @@
+# What never belongs in a build context.
+#
+# The images copy the repository rather than an enumerated list of paths.
+# Three times the list was wrong - make, VERSION and packaging/ each missing
+# in turn - because it restates the tree and drifts from it. A list of things
+# to exclude is stable: caches and build output, which change rarely and are
+# obvious when they change.
+
+.git
+.gitignore
+
+# Dependency caches, all rebuildable and some large.
+local
+.cpanm
+.perldeps
+.easyrsa
+.webmin
+
+# Build output. The container builds its own.
+build
+
+# The vendored third-party module, kept for reference and used by nothing the
+# containers run.
+openvpn
+openvpn.wbm.gz

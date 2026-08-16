@@ -4,9 +4,16 @@ A Webmin module for managing an OpenVPN server whose certificate authority is
 [easy-rsa 3](https://github.com/OpenVPN/easy-rsa), together with the two shell
 tools it drives.
 
-The module lists and issues client profiles, revokes them, and reports server
-status from the Webmin interface. It can also build a server from nothing on a
-host that has only `openvpn` and `easy-rsa` installed.
+From the Webmin interface the module issues client profiles and hands them
+over with per-platform installation notes, revokes them behind a
+confirmation that says what revocation costs, reports server status, and
+changes the listening port through the one operation that keeps the port
+consistent everywhere it appears. While the server is down it can also
+replace the configuration.
+
+The tools go further than the interface does: `vpn-server init` builds a
+server from nothing on a host that has only `openvpn` and `easy-rsa`
+installed. That one is a shell command, not a page.
 
 ## Why this exists
 
@@ -87,6 +94,21 @@ key, writes `server.conf` and `/etc/default/vpn-tools`, and enables the unit.
 It refuses to touch an existing server: replacing a CA invalidates every
 profile ever issued from it, so that has to be a deliberate act.
 
+### Adopting an existing certificate authority
+
+A server whose CA sits in another layout does not need a new one:
+
+```sh
+vpn-server import-ca --from /etc/openvpn/easy-rsa
+vpn-client regen --all
+```
+
+The CA key, every issued certificate and the revocation list carry over, so a
+client that worked yesterday works afterwards with the profile it already has.
+It reads easy-rsa 3 and the flat easy-rsa 2 layouts, never writes to the
+source, and refuses a directory holding certificates from more than one
+authority.
+
 ### Managing clients
 
 ```sh
@@ -105,6 +127,8 @@ import a single file.
 ### Changing the listening port
 
 ```sh
+vpn-server status               # unit state, listening port, connections
+vpn-server show-config          # print the running configuration
 vpn-server set-port 1195 udp
 ```
 
@@ -125,6 +149,14 @@ configuration page:
 | `vpn_server` | `/usr/local/sbin/vpn-server` |
 | `clients_dir` | `/etc/openvpn/clients` |
 
+The tool paths are a starting point rather than a requirement. If the
+configured path does not exist, the module looks in `/usr/sbin`,
+`/usr/local/sbin`, `/sbin` and `/usr/bin` for a tool of that name - so the
+package, which installs into `/usr/sbin`, and a manual install into
+`/usr/local/sbin` both work without editing anything here. Set the path
+explicitly if the tools live somewhere else, or if both locations have a
+copy and you need to say which one runs.
+
 Host names, paths and unit names live in `/etc/default/vpn-tools` on the
 server, never in this repository. See [DEPLOY.md](DEPLOY.md) for the full list.
 
@@ -132,23 +164,28 @@ server, never in this repository. See [DEPLOY.md](DEPLOY.md) for the full list.
 
 ```
 openvpn-server/   the Webmin module
-tools/            vpn-client and vpn-server
-tests/            test suite, fixtures and repository checks
+tools/            vpn-client and vpn-server, plus the optional UPnP pair
+tests/            test suite, fixtures, container images, repository checks
+packaging/        the .deb control file and the release installer
 docs/             design notes and client installation
+VERSION           major.minor; CI adds the build number
 openvpn/          the legacy third-party module, kept for reference only
 ```
 
 ## Development
 
 ```sh
-make help         # list targets
-make all          # leak scan, lint, suite, package and verify
-make e2e          # also test against Webmin and easy-rsa
-make preflight    # checks that must pass before pushing
+make help         # every target, with a description
+make all          # everything that needs no network
+make e2e          # adds the stages that clone Webmin and easy-rsa
+make e2e-tunnel   # a server, a client and a revoked certificate
+make e2e-webmin   # the module driven over HTTP in an installed Webmin
+make preflight    # what must pass before pushing
 ```
 
-[CONTRIBUTING.md](CONTRIBUTING.md) describes the stages, the coding standards
-and how the test doubles are used.
+The last two need a container engine. [CONTRIBUTING.md](CONTRIBUTING.md)
+describes the stages, the coding standards and how the test doubles are
+used.
 
 ## Licence
 

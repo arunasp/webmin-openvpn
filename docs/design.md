@@ -67,6 +67,82 @@ one. The tool says so plainly rather than implying otherwise, because an
 operator who believes only one client was affected will be wrong at the worst
 possible moment.
 
+## Why the CA is private rather than public
+
+A public authority cannot issue what this needs. Let's Encrypt stopped
+including the TLS Client Authentication EKU in its certificates on 11
+February 2026, and retired the temporary tlsclient profile on 8 July 2026;
+the other public authorities are following the same Chrome root-program
+requirement, which separates client and server authentication into distinct
+hierarchies. Client certificates are what a VPN authenticates people with, so
+a public CA cannot supply them at any price.
+
+It could still sign the server certificate, and that is worth weighing rather
+than dismissing. The argument against it here:
+
+- Trusting a public root means trusting every certificate it issues.
+  Verifying the server would have to be pinned with verify-x509-name, or any
+  certificate from that authority would satisfy a client.
+- A 90-day certificate needs renewal and a server restart on a deploy hook.
+  A tunnel that stops working every quarter unless a hook fired is a worse
+  failure than one that never renews.
+- Validation needs the name to be reachable: port 80 for HTTP-01, or DNS-01
+  with the provider's credentials on the host.
+- The gain is that clients need no CA certificate for the server side. They
+  already carry one inline, which costs nothing to distribute.
+
+tls-crypt makes the point narrower still: packets without the key are dropped
+before the TLS handshake, so the server is not exposed to anonymous TLS in
+the first place.
+
+Where a public certificate does earn itself on this host is Webmin's own
+interface, which a browser visits and which shows a warning without one.
+That is a separate certificate for a separate service, and nothing to do
+with the VPN's PKI.
+
+## An existing authority is adopted, not replaced
+
+A CA in another layout is in the wrong shape, not wrong. Rebuilding it
+invalidates every certificate ever issued from it: every client needs a new
+profile installed by hand, on every device, before it can connect again.
+For a site with a handful of clients that is an afternoon; for one with
+fifty it is a reason never to migrate.
+
+So `import-ca` copies the CA key, the issued certificates, the keys and the
+revocation list into the layout these tools expect, and `regen --all`
+rebuilds the profiles around the certificates that already exist. Nothing is
+reissued and no client is disturbed.
+
+Two properties make it safe to run against a directory somebody depends on.
+The source is only read, so a failed import costs nothing. And the new PKI
+is assembled beside the target, verified certificate by certificate against
+the CA, and moved into place only if all of them belong to it - a directory
+holding certificates from two authorities looks fine until a client is
+refused for a reason nobody can see.
+
+The revocation list is copied rather than regenerated. Regenerating would
+produce an equivalent file with a later nextUpdate, which quietly extends
+how long the server trusts a list it was given rather than preserving what
+was there.
+
+## The configuration locks down once it works
+
+What makes editing `server.conf` from a browser dangerous is losing a VPN
+that people are using. That danger does not exist before the server runs,
+and that is exactly when editing is needed: a first configuration that will
+not start has to be fixable from the same place it was written.
+
+So the server page follows the state. While the daemon is down it offers the
+configuration for replacement, through `vpn-server apply-config` - which
+backs up, installs, restarts, and puts the old file back if the server
+refuses to come up. Once the daemon is up the same page shows the file and
+nothing more, and `set-port` remains the guarded way to change the setting
+anyone actually changes.
+
+The check is on the server side, not only in the page that links to it. A
+form submitted from a tab left open before the server started would
+otherwise arrive after it, which is the moment the restriction exists for.
+
 ## Elliptic curve by default, recorded where it survives
 
 easy-rsa defaults to RSA 2048. `vpn-server init` writes `EASYRSA_ALGO` and
@@ -80,6 +156,36 @@ happened to create it.
 `easyrsa` entry point and `x509-types` symlinked in, `openssl-easyrsa.cnf`
 copied. Without that, `vpn-client` cannot run `./easyrsa` and the server can
 issue nothing - a server that builds cleanly and is useless.
+
+## The listener takes both address families
+
+`proto udp` binds one family, in practice IPv4, and OpenVPN says so in its
+own log: "Could not determine IPv4/IPv6 protocol. Using AF_INET". A phone on
+an IPv6-only mobile network cannot reach that except through whatever
+translation its carrier provides, which is not a property to leave to chance
+in software whose clients are phones.
+
+`udp6` opens a dual-stacked socket that accepts both: an AF_INET6 socket with
+`IPV6_V6ONLY` unset receives IPv4 datagrams as `::ffff:` addresses. `init`
+detects rather than assumes, because a host with IPv6 disabled in the kernel
+cannot bind `udp6` at all and the server would fail to start.
+
+The client profile keeps the plain form. `udp6` in a client configuration
+forces the client onto IPv6 and fails wherever there is none; the profile
+names the transport and lets the client choose the family from DNS.
+
+## The tools are found, not configured
+
+The package installs into `/usr/sbin`, because Debian policy reserves
+`/usr/local` for the administrator. A manual install conventionally uses
+`/usr/local/sbin`. Either would otherwise require correcting the module
+configuration after the fact, so the module takes the configured path when it
+exists and searches the usual directories when it does not.
+
+`vpn-server` does the same for the `vpn-client` it calls, preferring the copy
+beside itself. The two ship together, and hardcoding either location meant
+`set-port` skipped regenerating profiles on the other - after it had already
+changed the port those profiles name.
 
 ## Site identity lives on the server
 
@@ -98,7 +204,16 @@ handling is exercised against certificates openssl produced. What it cannot esta
 how the genuine dependencies behave: a fake that is handed its answers by the
 fixture proves nothing about the tool it stands in for.
 
-That gap is covered separately. `make e2e` runs `init` against easy-rsa itself
-checkout across several releases, and `make apicheck` verifies every Webmin
-function the module calls against the Webmin release being targeted. Neither
-proves a page renders, which remains a browser's job.
+That gap is covered separately, by four stages that each remove one kind of
+pretending:
+
+- `make e2e` runs `init` against an easy-rsa checkout, across several releases.
+- `make apicheck` verifies every Webmin function the module calls against the
+  Webmin release being targeted.
+- `make e2e-tunnel` builds a server, connects a client through it, revokes that
+  client and confirms it is refused. Nothing above it establishes that a
+  profile works or that revocation has any effect on a running server.
+- `make e2e-webmin` installs the package into Webmin and drives the module over
+  HTTP. It is the only stage that can tell whether a page renders, and the
+  first time it ran by hand it found JSON that broke the server panel whenever
+  nobody was connected.

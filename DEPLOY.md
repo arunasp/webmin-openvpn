@@ -1,8 +1,8 @@
 # Deployment
 
-The pipeline stops at `make verify`. Installation happens on the target server,
-because it needs credentials and privileges no CI runner has; a `deploy` target
-that can only ever be run by hand would be a pretence.
+CI builds, checks and publishes a release. Installation happens on the target
+server, because it needs credentials and privileges no CI runner has; a
+`deploy` target that can only ever be run by hand would be a pretence.
 
 ## Requirements
 
@@ -32,11 +32,15 @@ is a shell fragment, so quote anything containing spaces:
     EASYRSA_DIR=/etc/openvpn/easyrsa
     CLIENT_DIR=/etc/openvpn/clients
     SERVER_DIR=/etc/openvpn/server
+    SERVER_CONF=/etc/openvpn/server/server.conf  # only if it is named otherwise
     STATUS_FILE=/var/log/openvpn/status.log
     SERVER_UNIT=openvpn-server@server
     UPNP_UNIT=upnp-port-forward.service
     UPNP_DEFAULTS=/etc/default/upnp-port-forward
-    VPN_CLIENT=/usr/local/sbin/vpn-client
+    VPN_CLIENT=/usr/local/sbin/vpn-client   # only if the tools are somewhere unusual
+    EASYRSA_BIN=/usr/local/share/easy-rsa/easyrsa   # a specific easy-rsa
+    EASYRSA_SEARCH_PATH=/usr/share/easy-rsa:/usr/local/share/easy-rsa
+    SERVER_CN=server                        # only if it differs from the cert name
 
 Only `REMOTE_HOST` has no sensible default. Everything else matches a stock
 easy-rsa 3 layout on Debian or Ubuntu. The server's own certificate name is
@@ -52,8 +56,9 @@ the revoked client stays connected.
 
 A server runs released code, never a working copy. Releases are produced by
 CI from `main` after every stage has passed, tagged `vMAJOR.MINOR.BUILD`, and
-published with everything a server installs: the packaged module, both shell
-tools, and a `SHA256SUMS` covering all three.
+published with everything a server installs: the packaged module, a `.deb` of
+the tools, both tools as plain files, the installer, and a `SHA256SUMS`
+covering all of them.
 
 Nothing on a server should come from a development branch. A checkout is for
 building and testing; what a server installs is an artifact somebody can
@@ -69,11 +74,11 @@ Fetches every asset, verifies all of them against `SHA256SUMS`, installs the
 tools and prints the URL to hand Webmin for the module:
 
 ```sh
-REL=https://github.com/arunasp/webmin-openvpn/releases/download/v1.0.42
+REL=https://github.com/arunasp/webmin-openvpn/releases/download/vX.Y.Z
 curl -fsSLO $REL/install.sh
 curl -fsSLO $REL/SHA256SUMS
 sha256sum --ignore-missing -c SHA256SUMS   # check the installer first
-sudo TAG=v1.0.42 sh install.sh
+sudo TAG=vX.Y.Z sh install.sh
 ```
 
 Verify before running, rather than piping a URL into a shell. The installer
@@ -86,10 +91,10 @@ On Debian or Ubuntu, the tools are also a `.deb`, which gives dependency
 checking on openvpn and easy-rsa and a clean removal:
 
 ```sh
-curl -fsSLO $REL/openvpn-server-tools_1.0.42_all.deb
+curl -fsSLO $REL/openvpn-server-tools_X.Y.Z_all.deb
 curl -fsSLO $REL/SHA256SUMS
 sha256sum --ignore-missing -c SHA256SUMS
-sudo apt install ./openvpn-server-tools_1.0.42_all.deb
+sudo apt install ./openvpn-server-tools_X.Y.Z_all.deb
 ```
 
 It installs into `/usr/sbin`, because Debian policy reserves `/usr/local`
@@ -115,12 +120,121 @@ program.
     install -o root -g root -m 0755 vpn-client /usr/local/sbin/vpn-client
     install -o root -g root -m 0755 vpn-server /usr/local/sbin/vpn-server
 
-Then confirm against the installed site, in this order, before trusting
-anything:
+`vpn-server` calls the `vpn-client` installed beside it, so both belong in the
+same directory. Then confirm against the installed site, in this order, before
+trusting anything:
 
     vpn-server status          # unit state, port, connections
     vpn-client list            # the same clients the PKI knows about
     vpn-client list --json     # parses, and agrees with the table
+
+## Hosts that differ
+
+Four things vary between hosts, and each has one setting or one step behind
+it.
+
+**easy-rsa older than 3.1.** 3.0.x prompts for a PEM passphrase even when
+told nopass, so it cannot be driven unattended - which affects add and
+revoke as much as init, since all three call ./easyrsa. The tools refuse it
+with a version message rather than hanging. This is a starting condition,
+not a dead end: install a newer easy-rsa from the distribution first,
+through backports or an add-on repository, and take the upstream release
+from https://github.com/OpenVPN/easy-rsa only when the distribution has
+nothing newer. It is self-contained shell, so extracting it works:
+
+    tar xzf EasyRSA-3.x.y.tgz -C /usr/local/share
+    ln -sfn /usr/local/share/EasyRSA-3.x.y /usr/local/share/easy-rsa
+
+Package layouts differ, and both are handled. Debian and Ubuntu put the
+script in /usr/share/easy-rsa; Red Hat packages put it in a versioned
+subdirectory, /usr/share/easy-rsa/3.2.1/easyrsa, with 3 and 3.0 pointing at
+it. The search prefers the directory itself, then the major symlink, then
+the highest version present.
+
+/usr/local/share/easy-rsa is already in the search path, so nothing needs
+configuring. EASYRSA_BIN in /etc/default/vpn-tools overrides the search
+entirely for an installation somewhere else. An existing CA directory holds
+its own ./easyrsa symlink from when it was created, so repoint that too:
+
+    ln -sfn /usr/local/share/easy-rsa/easyrsa /etc/openvpn/easyrsa/easyrsa
+
+**A configuration named after the instance.** A host running openvpn@NAME
+names its file after the instance rather than server.conf. Set SERVER_CONF
+to the full path; the port, protocol and pushed routes are read from
+whatever it points at.
+
+**An existing CA in another layout.** Adopt it rather than replacing it:
+
+    vpn-server import-ca --from /etc/openvpn/easy-rsa
+
+The CA key, every issued certificate and the revocation list carry over,
+so a client that worked yesterday works afterwards with the profile it
+already has. It reads the source and never writes to it, assembles the new
+PKI beside the target, verifies every certificate against the CA, and moves
+it into place only if all of them belong to it. Then:
+
+    vpn-client list             # what came across
+    vpn-client regen --all      # rebuild .ovpn files from those certificates
+
+It reads easy-rsa 3 (pki/) and the flat easy-rsa 2 layouts (keys/, or the
+directory itself). New clients are issued with the algorithm the adopted CA
+already uses, which --algo overrides.
+
+**Several servers on one host.** These tools manage one server, with an
+easy-rsa 3 PKI at EASYRSA_DIR and client profiles as flat .ovpn files in
+CLIENT_DIR. A host
+that keeps several servers side by side, or its keys somewhere the CA
+directory does not own, is a different arrangement rather than a different
+setting - the certificates would have to move into an easy-rsa 3 PKI first,
+and moving a CA invalidates every profile issued from it.
+
+**A unit with another name.** Distributions ship both openvpn@NAME and
+openvpn-server@NAME. Set SERVER_UNIT to whichever this host runs. Naming
+the wrong one produces a revocation that reports success while the revoked
+client stays connected.
+
+**Not Debian or Ubuntu.** The .deb is for those; everywhere else use
+install.sh, which is POSIX sh and needs only curl and sha256sum. There is
+no rpm, because there is nowhere here to test one.
+
+**A firewall that is not UPnP.** init opens no ports. Whether that is an
+iptables rule saved for the next boot, a firewalld service, or a rule
+someone set on a router once, it is the host's business and outside these
+tools. The UPnP pair below is one arrangement among those, for a site whose
+address changes.
+
+## Optional: UPnP and dynamic DNS
+
+Two more tools ship in the same release and package. A site with a static
+address or a hand-configured port forward needs neither, and they are inert
+until something enables them.
+
+upnp-port-forward asks the router for an inbound mapping and re-asserts it
+on a timer, because UPnP mappings are leases and a router forgets them when
+it reboots. It refuses to open a port with nothing listening behind it, and
+removes any stale mapping it finds for that port.
+
+vpn-extip prints the external address for a dynamic DNS client. ddclient
+3.10 parses cmd= poorly when the value contains a space, so a wrapper
+taking no arguments is what makes use=cmd work.
+
+To enable them:
+
+    apt install miniupnpc
+    cp packaging/upnp-port-forward.default /etc/default/upnp-port-forward
+    cp packaging/systemd/upnp-port-forward.* /etc/systemd/system/
+    systemctl daemon-reload
+    systemctl enable --now upnp-port-forward.service upnp-port-forward.timer
+    upnp-port-forward status
+
+The unit names openvpn-server@server in three places; change all three
+together if this host uses a different unit, and keep it in step with
+SERVER_UNIT. The timer interval must stay shorter than LEASE, or the
+mapping expires between runs and the VPN goes unreachable from outside.
+
+vpn-server set-port rewrites the port and protocol in
+/etc/default/upnp-port-forward when that file exists, and says nothing when
+it does not. tests/smoke.sh checks the two agree.
 
 ## Installing the module
 
@@ -132,6 +246,24 @@ file is downloaded by hand instead.
 Or install the downloaded and verified `openvpn-server-<version>.wbm.gz` through **Webmin
 → Webmin Configuration → Webmin Modules → Install Module → From uploaded
 file**, then open **Servers → OpenVPN**.
+
+Once it is installed, check the whole installation from the server:
+
+    bash tests/smoke.sh        # read-only; safe on a working server
+
+It reads only, and it is the same script `make e2e-webmin` runs against the
+container it builds, so it is exercised on every pipeline run rather than
+first used here. It confirms the tools are where the module looks and in the
+same directory, that the unit the tools name is the one systemd is running,
+that something is listening on the port they report, that every valid client
+has a profile and none is readable beyond its owner, that the revocation list
+has not expired, and that the module is installed with all its pages and
+granted to a Webmin user. It does not prove a client can connect; only a
+client connecting proves that.
+
+Creating a server is a shell step. The module manages a server that exists
+and offers no page for `vpn-server init`, so on a host with no OpenVPN
+configuration, run init first and install the module afterwards.
 
 Verifying in a browser is not optional. Webmin refuses to run its
 library-dependent Perl from outside its own directory and requires

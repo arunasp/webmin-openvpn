@@ -5,8 +5,11 @@ include /etc/cicd-common.mk
 endif
 
 # Pipeline for the openvpn-server Webmin module and the shell tools it wraps.
-# make perldeps once, then make all. Run make e2e when a
-# change touches init, because only that stage runs easy-rsa itself.
+# make perldeps once, then make all. Beyond that: make e2e when a change
+# touches init, since that stage runs easy-rsa itself; make e2e-tunnel to
+# connect a client through a server it built; make e2e-webmin to drive the
+# module over HTTP in an installed Webmin. The last two need a container
+# engine. make help lists everything.
 #
 # There is no deploy target. Installing to /usr/share/webmin on a server
 # needs credentials no CI runner has, so it is driven from outside and
@@ -66,7 +69,7 @@ EASYRSA_REPO   = https://github.com/OpenVPN/easy-rsa.git
 EASYRSA_CLONE  = .easyrsa/easy-rsa
 EASYRSA_SRC   = $(EASYRSA_CLONE)/easyrsa3/easyrsa
 
-.PHONY: perldeps easyrsa webmin apicheck lint scan style test build deb dist verify reproducible preflight version e2e e2e-matrix e2e-tunnel e2e-webmin all clean distclean
+.PHONY: perldeps easyrsa webmin apicheck lint scan style docs test build deb dist verify reproducible preflight smoke version e2e e2e-matrix e2e-tunnel e2e-webmin all clean distclean
 
 version: ## Print the release version this build would produce
 	@echo "release  $(RELEASE_VERSION)"
@@ -108,7 +111,7 @@ apicheck: $(WEBMIN_REAL) ## Check every Webmin function the module calls exists
 	git -C $(WEBMIN_CLONE) -c advice.detachedHead=false checkout -q $(WEBMIN_REF)
 	MODULE=$(MODULE) bash tests/webmin-api.sh $(WEBMIN_CLONE)
 
-lint: scan style ## Leak scan, prose, ShellCheck, and Perl compile and policy checks
+lint: scan style docs ## Leak scan, prose, docs, ShellCheck, and Perl checks
 	@test -n "$(TOOLS)" || { echo "no tools found to check"; exit 1; }
 	shellcheck --shell=bash $(TOOLS) $(SUITE)
 	@for f in $(PERLSRC); do echo "perl -cw $$f"; $(PERL_ENV) perl -cw "$$f" || exit 1; done
@@ -120,8 +123,20 @@ lint: scan style ## Leak scan, prose, ShellCheck, and Perl compile and policy ch
 	  echo "perlcritic absent - run 'make perldeps'; compile check only this run"; \
 	fi
 
+# Read-only checks against a live installation, to be run on the server after
+# installing. Not part of any other target: it needs a working server, and
+# there is not one here.
+smoke: ## Check a live installation, read-only
+	bash tests/smoke.sh
+
 # Filler words that keep coming back. Checked rather than remembered,
 # because remembering is what failed.
+# Documentation goes stale without erroring. These are the facts in it that
+# the tree can contradict: make targets, module settings, pinned versions,
+# release examples, internal links.
+docs: ## Check documented facts against the tree
+	bash tests/docs.sh
+
 style: ## Fail on filler words in tracked files
 	bash tests/style.sh
 
@@ -185,6 +200,7 @@ deb: ## Build a .deb of the two tools
 	@sed 's/@VERSION@/$(RELEASE_VERSION)/' packaging/deb/control.in \
 	  > $(BUILD)/deb/DEBIAN/control
 	@install -m 0755 tools/vpn-client tools/vpn-server $(BUILD)/deb/usr/sbin/
+	@install -m 0755 tools/upnp-port-forward tools/vpn-extip $(BUILD)/deb/usr/sbin/
 	dpkg-deb --root-owner-group --build $(BUILD)/deb $(DEB_FILE)
 	@dpkg-deb -I $(DEB_FILE) | sed -n '2,7p'
 
@@ -197,8 +213,9 @@ dist: build deb ## Assemble the release assets and their checksums
 	@mkdir -p $(BUILD)/dist
 	@cp $(PACKAGE) $(BUILD)/dist/
 	@cp $(DEB_FILE) $(BUILD)/dist/
-	@cp tools/vpn-client tools/vpn-server $(BUILD)/dist/
-	@cp packaging/install.sh $(BUILD)/dist/
+	@install -m 0755 tools/vpn-client tools/vpn-server \
+	  tools/upnp-port-forward tools/vpn-extip $(BUILD)/dist/
+	@install -m 0755 packaging/install.sh $(BUILD)/dist/
 	@cd $(BUILD)/dist && sha256sum * > SHA256SUMS
 	@ls -l $(BUILD)/dist
 	@cat $(BUILD)/dist/SHA256SUMS

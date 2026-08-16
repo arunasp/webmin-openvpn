@@ -1,0 +1,17 @@
+# Inbound port mapping requested from the router by UPnP. Optional: a site
+# with a static address or a hand-configured forward needs none of this.
+#
+# The timer interval must be SHORTER than LEASE, or the mapping expires
+# between runs.
+#
+# WAN_IF is detected from the default route when unset. PORT and PROTO are
+# rewritten by `vpn-server set-port`, which is why they belong in a file
+# rather than in the unit.
+#WAN_IF=
+PORT=1194
+PROTO=UDP
+LEASE=3600
+DESC=openvpn
+# Optional fallback if the router will not report its external address.
+# Naming one is a choice about which third party sees the request.
+#CHECKIP_URL=

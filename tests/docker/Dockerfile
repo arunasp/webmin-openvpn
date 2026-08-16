@@ -24,8 +24,15 @@ RUN apt-get update \
  && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /src
-COPY tools /src/tools
-COPY tests /src/tests
+# The repository, not a list of paths: an enumerated COPY restates the tree
+# and drifts from it. .dockerignore names the exclusions.
+COPY . /src
+
+# Presence, not the executable bit: the entrypoint runs these through bash,
+# and the git modes are not uniform across the tree.
+RUN test -f /src/tools/vpn-client \
+ && test -f /src/tools/vpn-server \
+ && test -f /src/tests/e2e-tunnel.sh
 
 # The daemon writes where the generated config tells it to, and that path has
 # to exist before the server starts.

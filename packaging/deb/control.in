@@ -4,6 +4,7 @@ Section: net
 Priority: optional
 Architecture: all
 Depends: bash, openvpn (>= 2.4), easy-rsa (>= 3.1), openssl
+Suggests: miniupnpc, ddclient
 Maintainer: openvpn-server-tools maintainers <noreply@users.noreply.github.com>
 Homepage: https://github.com/arunasp/webmin-openvpn
 Description: Command-line tools for an easy-rsa 3 OpenVPN server
@@ -14,6 +15,12 @@ Description: Command-line tools for an easy-rsa 3 OpenVPN server
  vpn-server owns the server side: status, configuration display, guarded
  configuration changes that roll back if the daemon refuses them, and
  building a server from nothing.
+ .
+ upnp-port-forward and vpn-extip are optional, and inert unless configured:
+ they request an inbound port mapping from a router by UPnP and report the
+ external address for a dynamic DNS client. A site with a static address or
+ a hand-configured forward needs neither, and nothing runs unless the
+ supplied systemd unit is enabled. They need miniupnpc.
  .
  These are the tools the Webmin OpenVPN module drives. Installing them is
  enough to manage a server from a shell; the module itself is installed

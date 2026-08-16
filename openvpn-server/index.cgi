@@ -16,7 +16,7 @@ our (%text, %config);
 
 my ($server, $server_err) = &server_status();
 if ($server_err) {
-	print &ui_alert_box(&text('index_toolerr', $config{'vpn_server'},
+	print &ui_alert_box(&text('index_toolerr', &tool_path($config{'vpn_server'}),
 				  $server_err), 'warn');
 	}
 else {
@@ -30,11 +30,12 @@ else {
 	print &ui_table_row($text{'srv_crl'},
 			    $server->{'crl_next_update'} || '-');
 	print &ui_table_end();
+	print "<p><a href='server.cgi'>$text{'index_server_link'}</a></p>\n";
 	}
 
 my ($data, $err) = &client_list();
 if ($err) {
-	print &ui_alert_box(&text('index_toolerr', $config{'vpn_client'}, $err),
+	print &ui_alert_box(&text('index_toolerr', &tool_path($config{'vpn_client'}), $err),
 			    'danger');
 	&ui_print_footer("/", $text{'index_return'});
 	exit;

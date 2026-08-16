@@ -29,18 +29,29 @@ RUN apt-get update \
  && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /src
-COPY tools /src/tools
-COPY tests /src/tests
-# VERSION too: build reads it for the release number, and without it the
-# package cannot be named.
-COPY Makefile cicd-common.mk VERSION /src/
-COPY openvpn-server /src/openvpn-server
+# The repository, not a list of paths. An enumerated COPY restates the tree
+# and drifts from it: make, VERSION and packaging/ were each missing in turn,
+# every time because the reasoning was about what the code under test needs
+# rather than what the entrypoint runs. .dockerignore names what to leave out,
+# which is a short list that changes rarely.
+COPY . /src
 
-# The tools have to be where the module's default configuration expects them,
-# because the stage exercises the module as shipped rather than a rewired copy.
-RUN install -m 0755 /src/tools/vpn-client /usr/local/sbin/vpn-client \
- && install -m 0755 /src/tools/vpn-server /usr/local/sbin/vpn-server \
- && mkdir -p /var/log/openvpn
+# Fail at build time rather than at run time. A file the entrypoint needs but
+# the image does not carry produces an error three steps into a container run,
+# where it reads as a broken pipeline stage rather than a missing file.
+RUN test -f /src/packaging/deb/control.in \
+ && test -f /src/tools/vpn-client \
+ && test -f /src/tools/vpn-server \
+ && test -f /src/Makefile \
+ && test -f /src/VERSION \
+ && test -f /src/openvpn-server/module.info
+
+# The tools are installed from the package, not copied into place, so this
+# stage runs the layout a server actually gets: both in /usr/sbin, which is
+# not where the module's default configuration points. That makes the
+# module resolve the path rather than read it, which is the arrangement that
+# was previously only reasoned about.
+RUN mkdir -p /var/log/openvpn
 
 # Build a server and issue a client, then run the stage against it. systemctl
 # is faked for the duration: there is no init system here, and the stage is

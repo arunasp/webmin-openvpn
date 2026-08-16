@@ -13,10 +13,13 @@ which runs, in order:
 | Target | What it does |
 | --- | --- |
 | `scan` | fails if site identity or key material reached the tree |
-| `lint` | ShellCheck, `perl -cw`, and Perl::Critic |
+| `style` | fails on filler words and em dashes |
+| `docs` | checks documented facts against the tree |
+| `lint` | the three above, plus ShellCheck, `perl -cw` and Perl::Critic |
 | `test` | the suite, against a fixture site |
 | `build` | packages the module as a `.wbm.gz` |
 | `verify` | checks the package the way Webmin's installer does |
+| `smoke` | read-only checks against a live installation; also run by `e2e-webmin` |
 
 Two further targets need network access and are not part of `all`:
 
@@ -25,6 +28,10 @@ make apicheck      # every Webmin function the module calls exists in WEBMIN_REF
 make e2e           # init against easy-rsa itself, and apicheck
 make e2e-matrix    # e2e against each release in EASYRSA_REFS
 ```
+
+`make e2e-webmin` finishes by running the smoke checks against the
+installation it just built, so the checks a server will be judged by are
+exercised on every run rather than first used in production.
 
 Run `make e2e` before trusting any change to `vpn-server init`. The fixture
 cannot prove what easy-rsa itself does; see "Test doubles" below.
@@ -94,8 +101,9 @@ which runs against a genuine easy-rsa checkout.
 The same limit applies to `tests/stubs/WebminCore.pm`. It exists so Webmin
 modules can be syntax- and policy-checked on a machine without Webmin, and it
 implements nothing at all. It proves compilation, never behaviour;
-`make apicheck` proves the functions exist in a given Webmin release, and only
-a browser proves a page renders.
+`make apicheck` proves the functions exist in a given Webmin release, and
+`make e2e-webmin` installs the module into Webmin and drives its pages over
+HTTP, which is what proves they render.
 
 ## Repository hygiene
 
@@ -116,6 +124,48 @@ matters of convention and review.
 `make preflight` extends the scan to every unpushed commit and to commit
 messages, because a push publishes history, not just the checkout.
 
+## Keeping the documentation true
+
+`make docs` checks the facts the documentation states against the tree: that
+every `make` command it shows exists, that the module settings table matches
+the module's own defaults, that the Webmin and easy-rsa versions it names are
+the ones pinned in the Makefile, that release examples use a placeholder
+rather than a version that will age, that the stage table below covers every
+prerequisite of `all` and `lint`, and that internal links resolve.
+
+The facts it compares are the ones a code change can invalidate on its own:
+every make command shown exists, every subcommand the tools offer is
+documented and every one documented exists, every setting the tools read is
+mentioned somewhere, the module settings table matches the module, pinned
+versions match the Makefile, and internal links resolve. Each of those makes
+the documentation a dependency of the code rather than a courtesy: add a
+subcommand or a setting without a sentence about it and lint fails.
+
+`make preflight` adds a note, not a failure, when unpushed commits change
+behaviour and touch no document. Plenty of changes need none - a test fix, a
+rename - so failing on them would produce a rule people argue with once and
+skip thereafter.
+
+It checks facts, not prose. Nothing can tell you an explanation has stopped
+being true; this catches the parts that can be compared against something.
+
+Which is why the documentation gets read in full, not only checked. The first
+review of this repository found thirteen stale statements; the checks had
+caught two of them. The other eleven were sentences that had quietly stopped
+describing the software: a claim that only a browser could prove a page
+renders, after a stage was added that does; a workflow described as running
+on branches after it moved to pull requests; a release said to carry three
+assets after it grew to five.
+
+Two habits follow, and the second exists because the first is not enough:
+
+- When behaviour changes, re-read the sections describing that behaviour in
+  the same commit. A new prerequisite, a new stage, a changed default and a
+  changed trigger each invalidate prose somewhere.
+- Read all five documents end to end before bumping the minor or major
+  version. Drift accumulates in the sections nobody happened to touch, and
+  the only way it surfaces is somebody reading what is actually written.
+
 ## Versions and releases
 
 `VERSION` holds `major.minor`. CI supplies the third component as the build
@@ -133,13 +183,31 @@ is the one the build intended.
     make version                  # what this build would produce
     make build BUILD_NUMBER=42    # package 1.0.42, module.info 1.42
 
-Development branches run `.github/workflows/ci.yml`. Merging to `main` runs
-`release.yml`, which repeats every stage and, only if all of them pass, tags
-`vMAJOR.MINOR.BUILD` and publishes the package and its checksum. Bump
+Pull requests run `.github/workflows/ci.yml`, from forks as well. Merging to
+`main` runs `release.yml`, which repeats every stage and, only if all of them
+pass, tags `vMAJOR.MINOR.BUILD` and publishes the release assets. Bump
 `VERSION` when the minor or major changes; the build number takes care of
 itself.
 
 ## Commits
+
+One commit per change, and the branch is tidied before it is pushed rather
+than after. A commit that fixes one already on the branch belongs inside it:
+rewriting is free while nothing has fetched the branch, and costs everyone
+once something has.
+
+    git rebase -i origin/dev     # fixup the follow-ups into what they fix
+    make preflight
+
+`make preflight` fails on a commit still marked `fixup!`, `squash!` or
+`wip`, and notes when several commits share a subject scope - usually one
+change told in instalments, though a scope can legitimately change twice in
+a branch, which is why it is a note.
+
+An atomic commit is one that could be reverted on its own and leaves the
+tree working either way: the code, its tests, and the documentation it
+invalidates, together. Split across commits, a bisect lands on a state that
+fails for a reason nobody chose.
 
 Describe the reasoning, not the diff: what was wrong, what changed, and why
 that is the right place for the change. Where a defect was found by a specific

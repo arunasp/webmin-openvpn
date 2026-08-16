@@ -130,6 +130,8 @@ run_server() {
         SITE_CONF=/dev/null \
         SERVER_DIR="$root/server" \
         CLIENT_DIR="$root/clients" \
+        EASYRSA_DIR="$root/easyrsa" \
+        EASYRSA_SEARCH_PATH="${EASYRSA_SEARCH_PATH:-/nonexistent}" \
         STATUS_FILE="$root/log/status.log" \
         UPNP_DEFAULTS="$root/default/upnp-port-forward" \
         VPN_CLIENT="$root/bin/vpn-client-wrapper" \
@@ -342,6 +344,28 @@ else
 fi
 assert_eq "and reports zero" "0" "$(printf '%s' "$OUT" | json_field connected)"
 
+# The package installs both tools into /usr/sbin, a manual install puts them
+# in /usr/local/sbin. vpn-server must call the vpn-client beside it either
+# way, or set-port silently skips regenerating the profiles it just
+# invalidated.
+sibling=$(mktemp -d)
+install -m 0755 "$repo/tools/vpn-client" "$repo/tools/vpn-server" "$sibling/"
+resolved=$(cd "$sibling" && bash -c 'source <(sed -n "/^find_vpn_client/,/^}/p" vpn-server); find_vpn_client')
+assert_eq "vpn-server calls the vpn-client beside it" \
+    "$sibling/vpn-client" "$resolved"
+rm -rf "$sibling"
+
+# A host that runs openvpn@NAME names the configuration after the instance,
+# and one migrated from an older layout may name it after the endpoint.
+mv "$root/server/server.conf" "$root/server/vpn.example.com-tcp.conf"
+SERVER_CONF="$root/server/vpn.example.com-tcp.conf" run_server "$root" status --json
+assert_exit "status reads a configuration named something else" 0 "$RC"
+assert_eq "and reports that path" "$root/server/vpn.example.com-tcp.conf" \
+    "$(printf '%s' "$OUT" | json_field config)"
+SERVER_CONF="$root/server/vpn.example.com-tcp.conf" run_client "$root" list --json
+assert_contains "and the profile still names the right port" "$OUT" '"port":"1194"'
+mv "$root/server/vpn.example.com-tcp.conf" "$root/server/server.conf"
+
 echo
 echo "== vpn-server: set-port refusals"
 run_server "$root" set-port abc
@@ -497,6 +521,123 @@ assert_file_contains "the profile names plain udp, not udp6" \
 
 run_init "$root" --host vpn.example.com --proto sctp6
 assert_exit "init still rejects an unknown protocol" 1 "$RC"
+
+echo
+echo "== import-ca: adopting a CA instead of replacing it"
+# The alternative to importing is a new CA, which invalidates every
+# certificate ever issued from the old one. These assertions are about the
+# claim that nothing is reissued: the certificate that comes out must be the
+# one that went in.
+src=$(mktemp -d)
+mkdir -p "$src/keys"
+(
+  cd "$src/keys" || exit 1
+  openssl req -x509 -newkey rsa:2048 -nodes -keyout ca.key -out ca.crt \
+      -days 3650 -subj '/CN=Imported CA' 2>/dev/null
+  for n in carol dave; do
+      openssl req -newkey rsa:2048 -nodes -keyout "$n.key" -out "$n.csr" \
+          -subj "/CN=$n" 2>/dev/null
+      openssl x509 -req -in "$n.csr" -CA ca.crt -CAkey ca.key -CAcreateserial \
+          -out "$n.crt" -days 1080 2>/dev/null
+      rm -f "$n.csr"
+  done
+  printf 'V\t290730185650Z\t\tAA\tunknown\t/CN=carol\n' > index.txt
+  printf 'V\t290730185650Z\t\tAB\tunknown\t/CN=dave\n' >> index.txt
+  echo AC > serial
+)
+before=$(openssl x509 -in "$src/keys/carol.crt" -noout -fingerprint -sha256)
+
+improot=$(new_bare_fixture modern)
+rm -rf "$improot/easyrsa/pki"
+run_server "$improot" import-ca --from "$src"
+assert_exit "import-ca adopts a flat easy-rsa 2 layout" 0 "$RC"
+assert_contains "and says what it did" "$OUT" "imported 2 certificates"
+assert_contains "naming the algorithm the CA already uses" "$OUT" "algorithm: rsa"
+assert_file_contains "the CA key came across" \
+    "$improot/easyrsa/pki/private/ca.key" "PRIVATE KEY"
+
+run_client "$improot" list
+assert_contains "the adopted clients are listed" "$OUT" "carol"
+assert_contains "both of them" "$OUT" "dave"
+
+# A profile needs the server side to exist: the remote, and the tls-crypt key
+# that goes inline. The bare fixture has neither, since no server was built.
+mkdir -p "$improot/server"
+printf 'port 1194\nproto udp\ncert pki/server.crt\n' > "$improot/server/server.conf"
+printf 'tls-crypt-placeholder\n' > "$improot/server/tls-crypt.key"
+run_client "$improot" regen --all >/dev/null
+after=$(sed -n '/<cert>/,/<\/cert>/p' "$improot/clients/carol.ovpn" |
+        sed '1d;$d' | openssl x509 -noout -fingerprint -sha256 2>/dev/null)
+assert_eq "the profile carries the certificate that already existed" \
+    "$before" "$after"
+
+# A directory holding certificates from two authorities is worth refusing:
+# the ones that do not verify would be silently unusable.
+cp -a "$src" "$src.mixed"
+(
+  cd "$src.mixed/keys" || exit 1
+  openssl req -x509 -newkey rsa:2048 -nodes -keyout other.key -out other.crt \
+      -days 30 -subj '/CN=Other CA' 2>/dev/null
+  openssl req -newkey rsa:2048 -nodes -keyout eve.key -out eve.csr \
+      -subj '/CN=eve' 2>/dev/null
+  openssl x509 -req -in eve.csr -CA other.crt -CAkey other.key \
+      -CAcreateserial -out eve.crt -days 30 2>/dev/null
+  rm -f eve.csr other.crt other.key
+)
+mixroot=$(new_bare_fixture modern)
+rm -rf "$mixroot/easyrsa/pki"
+run_server "$mixroot" import-ca --from "$src.mixed"
+assert_exit "a source mixing two CAs is refused" 1 "$RC"
+assert_contains "and says which certificate" "$OUT" "eve.crt"
+if [ -d "$mixroot/easyrsa/pki" ]; then
+    fail "nothing is left half-built" "$mixroot/easyrsa/pki exists"
+else
+    pass "nothing is left half-built"
+fi
+
+run_server "$improot" import-ca --from "$src"
+assert_exit "importing over an existing PKI is refused" 1 "$RC"
+rm -rf "$src" "$src.mixed"
+
+echo
+echo "== init: easy-rsa in a versioned directory"
+# Red Hat packages install to /usr/share/easy-rsa/<version>/easyrsa with major
+# and minor symlinks beside it; Debian puts the script in the directory
+# itself. Looking only at the directory finds nothing on a host where
+# easy-rsa is installed and working.
+rhroot=$(new_bare_fixture modern)
+rm -f "$rhroot/easyrsa/easyrsa"
+rhshare=$(mktemp -d)
+mkdir -p "$rhshare/easy-rsa/3.2.1/x509-types"
+cp "$rhroot/bin/easyrsa-fake" "$rhshare/easy-rsa/3.2.1/easyrsa" 2>/dev/null ||
+    printf '#!/bin/sh\nexit 0\n' > "$rhshare/easy-rsa/3.2.1/easyrsa"
+chmod 755 "$rhshare/easy-rsa/3.2.1/easyrsa"
+ln -s 3.2.1 "$rhshare/easy-rsa/3"
+
+resolved=$(cd "$repo" && bash -c "
+    source <(sed -n '/^abs_path/,/^}/p;/^find_easyrsa/,/^}/p' tools/vpn-server)
+    EASYRSA_BIN=; EASYRSA_DIR=/nonexistent
+    EASYRSA_SEARCH_PATH='$rhshare/easy-rsa'
+    find_easyrsa")
+assert_eq "the major symlink is preferred" \
+    "$rhshare/easy-rsa/3/easyrsa" "$resolved"
+
+# Without the symlink, the highest version present. sort -V, or 3.10 loses to
+# 3.9.
+rm "$rhshare/easy-rsa/3"
+for v in 3.9.0 3.10.0; do
+    mkdir -p "$rhshare/easy-rsa/$v"
+    printf '#!/bin/sh\nexit 0\n' > "$rhshare/easy-rsa/$v/easyrsa"
+    chmod 755 "$rhshare/easy-rsa/$v/easyrsa"
+done
+resolved=$(cd "$repo" && bash -c "
+    source <(sed -n '/^abs_path/,/^}/p;/^find_easyrsa/,/^}/p' tools/vpn-server)
+    EASYRSA_BIN=; EASYRSA_DIR=/nonexistent
+    EASYRSA_SEARCH_PATH='$rhshare/easy-rsa'
+    find_easyrsa")
+assert_eq "otherwise the highest version, compared as versions" \
+    "$rhshare/easy-rsa/3.10.0/easyrsa" "$resolved"
+rm -rf "$rhshare"
 
 echo
 echo "== init: refusals"

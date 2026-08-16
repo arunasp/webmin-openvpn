@@ -64,8 +64,16 @@ sha256sum -c SHA256SUMS || die "checksum mismatch - nothing has been installed"
 
 say
 say "== installing the tools into $PREFIX"
-for t in vpn-client vpn-server; do
-    [ -f "$t" ] || die "$t is not in this release"
+# upnp-port-forward and vpn-extip are optional and inert without
+# configuration, so they are installed when the release carries them and
+# skipped when it does not. Neither runs until a unit is enabled.
+for t in vpn-client vpn-server upnp-port-forward vpn-extip; do
+    if [ ! -f "$t" ]; then
+        case "$t" in
+            vpn-client|vpn-server) die "$t is not in this release" ;;
+            *) continue ;;
+        esac
+    fi
     # Ownership is only forced when this is running as root; a scratch
     # prefix under an ordinary account should still end up executable.
     if [ "$(id -u)" -eq 0 ]; then

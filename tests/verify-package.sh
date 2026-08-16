@@ -65,7 +65,9 @@ fi
 
 echo
 echo "== contents"
-for want in module.info config.info config lang/en openvpn-server-lib.pl index.cgi install_check.pl download.cgi; do
+for want in module.info config.info config lang/en openvpn-server-lib.pl \
+            index.cgi install_check.pl download.cgi add.cgi revoke.cgi \
+            server.cgi set_port.cgi apply_config.cgi; do
     case "$listing" in
         *"$module/$want"*) pass "package contains $want" ;;
         *) fail "package contains $want" "not in $package" ;;
@@ -166,6 +168,27 @@ fi
 unused=$(comm -13 <(printf '%s\n' "$used") <(printf '%s\n' "$defined"))
 if [ -n "$unused" ]; then
     echo "[note] defined but unused: $(printf '%s' "$unused" | tr '\n' ' ')"
+fi
+
+echo
+echo "== the assets a release publishes are runnable"
+# git modes across this tree are not uniform - vpn-server is recorded 644,
+# vpn-client 755 - and nothing noticed because everything invokes them
+# through bash and the package sets its own modes. Somebody downloading a
+# tool from a release and running it directly would notice.
+dist=$(dirname "$package")/dist
+if [ -d "$dist" ]; then
+    for t in vpn-client vpn-server install.sh; do
+        if [ ! -e "$dist/$t" ]; then
+            fail "$t is in the release" "missing from $dist"
+        elif [ -x "$dist/$t" ]; then
+            pass "$t is executable as published"
+        else
+            fail "$t is executable as published" "mode $(stat -c %a "$dist/$t")"
+        fi
+    done
+else
+    echo "[note] no dist directory yet; run make dist to check the assets"
 fi
 
 report

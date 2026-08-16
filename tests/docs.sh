@@ -1,0 +1,210 @@
+#!/bin/bash
+# Facts the documentation states that the tree can contradict.
+#
+# Documentation goes stale silently. Nothing errors, nothing fails to build,
+# and the first sign is somebody following an instruction that no longer
+# works. The Makefile, the module configuration and the pinned dependency
+# refs are the sources of truth for what the docs describe, so the docs are
+# checked against them here.
+#
+# This checks facts, not prose. It cannot tell whether an explanation is
+# still true, only whether a target, a setting, a version or a link still
+# refers to something that exists.
+set -uo pipefail
+
+here=$(cd "$(dirname "$0")" && pwd)
+repo=$(dirname "$here")
+module=${MODULE:-openvpn-server}
+# shellcheck source=tests/lib.sh
+. "$here/lib.sh"
+
+cd "$repo" || exit 1
+
+docs=(README.md CONTRIBUTING.md DEPLOY.md docs/clients.md docs/design.md)
+
+echo "== every make target the docs mention exists"
+targets=$(grep -hoE '^[a-z0-9-]+:' Makefile cicd-common.mk | tr -d ':' | sort -u)
+# Only where make is invoked: a sentence about "a make target" is prose.
+# A command, not a mention: line start, inside a fenced block, indented in a
+# code block, or in backticks. 'Every check is a make target' is prose.
+mentioned=$(grep -ohE '(^|`|    )make [a-z0-9-]+' "${docs[@]}" | awk '{print $NF}' | sort -u)
+missing=
+for t in $mentioned; do
+    printf '%s\n' "$targets" | grep -qx "$t" || missing="$missing $t"
+done
+if [ -z "$missing" ]; then
+    pass "all documented make targets exist ($(printf '%s\n' "$mentioned" | wc -l) referenced)"
+else
+    fail "all documented make targets exist" "not in the Makefile:$missing"
+fi
+
+echo
+echo "== the module settings table matches the module's own defaults"
+# README documents each setting and its default. The config file is what
+# Webmin installs, so it decides.
+# The key and its default have to be on one line: a table row. Accepting
+# them anywhere in the file passes on a table that has lost the row, as
+# long as the value appears in some paragraph.
+while IFS='=' read -r key value; do
+    [ -n "$key" ] || continue
+    if grep -qE "^\|.*\`$key\`.*\`$value\`.*\|" README.md; then
+        pass "$key is a row in the settings table, with its default"
+    else
+        fail "$key is a row in the settings table, with its default" \
+             "expected a row naming $key and $value"
+    fi
+done < "$module/config"
+
+echo
+echo "== every stage all and lint compose is in the stage table"
+# This is the check that a prose summary cannot survive: a target gains a
+# prerequisite and every sentence listing what it does becomes wrong without
+# anything failing. The table in CONTRIBUTING is the enumeration, so it has
+# to be complete.
+stages=$(sed -n 's/^all: *//p;s/^lint: *//p' Makefile |
+         sed 's/#.*//' | tr ' ' '\n' | sort -u | grep -v '^$')
+undocumented=
+for stage in $stages; do
+    if grep -qE '^\\| `'"$stage"'`' CONTRIBUTING.md; then
+        :
+    else
+        undocumented="$undocumented $stage"
+    fi
+done
+if [ -z "$undocumented" ]; then
+    pass "the stage table covers everything all and lint run"
+else
+    fail "the stage table covers everything all and lint run" \
+         "missing from the table:$undocumented"
+fi
+
+echo
+echo "== the documented commands and the tools agree"
+# Both directions. A command named in the docs that the tool does not offer
+# sends someone to a usage error; a command the tool offers that no document
+# mentions is a feature nobody can find, which is how import-ca reached the
+# deployment guide and neither the README nor the design notes.
+for tool in vpn-server vpn-client; do
+    offered=$(sed -n "s/.*usage: $tool {\(.*\)}.*/\1/p" "$repo/tools/$tool" |
+              tr "|" "\n" | awk '{print $1}' |
+              grep -E "^[a-z][a-z-]*$" | sort -u)
+    # Command contexts only: a line that starts with the command, or the
+    # command in backticks. A sentence saying "vpn-client and vpn-server"
+    # is prose, and reading it as a subcommand named "and" helps nobody.
+    named=$( { grep -ohE "^[[:space:]]*$tool [a-z][a-z-]*" "${docs[@]}";
+               grep -ohE "\`$tool [a-z][a-z-]*" "${docs[@]}" | tr -d '\`'; } |
+            awk '{print $2}' | sort -u)
+    missing=
+    for c in $named; do
+        printf "%s\n" "$offered" | grep -qx "$c" || missing="$missing $c"
+    done
+    if [ -z "$missing" ]; then
+        pass "every $tool command the docs name exists"
+    else
+        fail "every $tool command the docs name exists" "not offered:$missing"
+    fi
+    undocumented=
+    for c in $offered; do
+        printf "%s\n" "$named" | grep -qx "$c" || undocumented="$undocumented $c"
+    done
+    if [ -z "$undocumented" ]; then
+        pass "and every $tool command is documented somewhere"
+    else
+        fail "and every $tool command is documented somewhere" "$undocumented"
+    fi
+done
+
+echo
+echo "== every setting the tools read is documented"
+# Settings are the other fact that can be compared. A tool gains a variable,
+# the operator never hears about it, and the only way to discover it is to
+# read the source - which is the same failure as an undocumented subcommand,
+# in the place where a wrong guess costs more.
+#
+# SITE_CONF names the file the rest are read from; it is documented as a path
+# rather than as a setting inside itself.
+# Word splitting is what is wanted here: the names contain no spaces, and a
+# while-read loop would run the body in a subshell where the pass and fail
+# counters would not survive.
+# shellcheck disable=SC2013
+for setting in $(grep -hoE '^[A-Z_]+=\$\{[A-Z_]+:-' \
+                 "$repo/tools/vpn-client" "$repo/tools/vpn-server" |
+                 sed 's/=.*//' | sort -u); do
+    [ "$setting" = SITE_CONF ] && continue
+    if grep -qE "\b$setting\b" "${docs[@]}"; then
+        pass "$setting is documented"
+    else
+        fail "$setting is documented" "the tools read it and no document mentions it"
+    fi
+done
+
+echo
+echo "== pinned versions in the docs match the Makefile"
+webmin_ref=$(sed -n 's/^WEBMIN_REF *?*= *//p' Makefile | head -1 | tr -d ' ')
+easyrsa_refs=$(sed -n 's/^EASYRSA_REFS *?*= *//p' Makefile | head -1)
+for ref in $webmin_ref; do
+    if grep -qF "$ref" "${docs[@]}"; then
+        pass "Webmin $ref is the version the docs name"
+    else
+        fail "Webmin $ref is the version the docs name" \
+             "the Makefile pins $ref; the docs say something else"
+    fi
+done
+for ref in $easyrsa_refs; do
+    stripped=${ref#v}
+    major_minor=${stripped%.*}
+    if grep -qF "$major_minor" "${docs[@]}"; then
+        pass "easy-rsa $stripped is covered by the docs"
+    else
+        echo "[note] the docs do not mention easy-rsa $stripped, which e2e tests"
+    fi
+done
+
+echo
+echo "== a release example is a placeholder, not a version that will age"
+# A concrete version in an example is wrong the moment the next one ships,
+# and it is the kind of wrong nobody notices because it still looks right.
+concrete=$(grep -nE 'v[0-9]+\.[0-9]+\.[0-9]+' "${docs[@]}" |
+           grep -vE 'X\.Y\.Z|vX\.Y\.Z' || true)
+if [ -z "$concrete" ]; then
+    pass "release examples use a placeholder"
+else
+    fail "release examples use a placeholder" \
+         "$(printf '%s' "$concrete" | head -3 | tr '\n' ' ')"
+fi
+
+echo
+echo "== internal links resolve"
+broken=
+for l in $(grep -ohE '\]\([^)h][^)]*\)' "${docs[@]}" | tr -d '()]' | sed 's/#.*//' | sort -u); do
+    [ -n "$l" ] || continue
+    t=$l
+    case $l in ../*) t=${l#../} ;; esac
+    [ -e "$t" ] || broken="$broken $l"
+done
+if [ -z "$broken" ]; then
+    pass "every internal link points at a file that exists"
+else
+    fail "every internal link points at a file that exists" "$broken"
+fi
+
+echo
+echo "== has behaviour moved since the documentation did?"
+# Not an assertion. Documentation can be right while the code changes around
+# it, and can be wrong the moment it does; nothing here can tell which. What
+# it can say is that the code has moved and the prose has not, which is when
+# a full read is worth the time.
+code_at=$(git log -1 --format=%ct -- tools openvpn-server Makefile .github 2>/dev/null || echo 0)
+docs_at=$(git log -1 --format=%ct -- "${docs[@]}" 2>/dev/null || echo 0)
+if [ "$code_at" -gt 0 ] && [ "$docs_at" -gt 0 ]; then
+    days=$(( (code_at - docs_at) / 86400 ))
+    if [ "$days" -ge 14 ]; then
+        echo "[note] behaviour last changed $days days after the documentation."
+        echo "       Read all five documents end to end before the next release."
+    else
+        echo "[note] documentation and behaviour last moved within $days days"
+        echo "       of each other"
+    fi
+fi
+
+report
