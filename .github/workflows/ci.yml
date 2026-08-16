@@ -1,0 +1,114 @@
+name: CI
+
+# The same stages the local runner executes, in the same order, so a green
+# check here means what a green `make all` means. Jobs are split by what they
+# need: the first needs nothing, the second needs the network to fetch real
+# dependencies, and the last two need a container and a tun device.
+
+# Development branches. main is handled by release.yml, which runs the same
+# stages and then tags and publishes; running both on main would duplicate
+# every job.
+on:
+  push:
+    branches-ignore: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  checks:
+    name: lint, scan and suite
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # Perl::Critic is a project-local dependency, cached on the key of the
+      # manifest that pins it. A cache miss costs one cpanm run, not a wrong
+      # result.
+      - name: Cache CPAN dependencies
+        uses: actions/cache@v4
+        with:
+          path: local
+          key: cpan-${{ runner.os }}-${{ hashFiles('cpanfile') }}
+
+      - name: Install CPAN dependencies
+        run: make perldeps
+
+      - name: Leak scan
+        run: make scan
+
+      - name: Lint
+        run: make lint
+
+      - name: Suite
+        run: make test
+
+      - name: Build and verify the package
+        run: |
+          make verify BUILD_NUMBER=${{ github.run_number }}
+          make dist BUILD_NUMBER=${{ github.run_number }}
+
+      - name: Publish the package
+        uses: actions/upload-artifact@v4
+        with:
+          name: webmin-module
+          path: |
+            build/dist/*
+          if-no-files-found: error
+
+  real-dependencies:
+    name: against real Webmin and easy-rsa
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # Both clones are pinned by ref, so the cache key can be the ref itself.
+      - name: Cache dependency checkouts
+        uses: actions/cache@v4
+        with:
+          path: |
+            .webmin
+            .easyrsa
+          key: refs-${{ runner.os }}-webmin-2.653-easyrsa-v3.1.7
+
+      - name: Check the module against the Webmin release it targets
+        run: make apicheck
+
+      # Runs init against genuine easy-rsa on more than one release. This is
+      # the stage that has caught every defect the mocked suite could not see,
+      # so it runs on every push rather than on request.
+      - name: Run init against real easy-rsa, on each supported release
+        run: make e2e-matrix
+
+  tunnel:
+    name: real tunnel, in a container
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # The runner has a tun device already; loading the module is a no-op
+      # where it is built in, and harmless where it is not.
+      - name: Ensure a tun device exists
+        run: |
+          sudo modprobe tun || true
+          test -c /dev/net/tun
+
+      # Builds a server with the tools, connects a client through it, revokes
+      # that client and confirms it can no longer connect. Every other stage
+      # checks the software's parts; this one checks that it works.
+      - name: Build a server and connect a client through it
+        run: make e2e-tunnel
+
+  webmin:
+    name: the module in a real Webmin
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # Installs the package into Webmin 2.653 and drives the module over
+      # HTTP: the client list, the download page, the profile and the
+      # refusals. This is the only stage that can tell whether a page renders.
+      - name: Install the module and drive it over HTTP
+        run: make e2e-webmin

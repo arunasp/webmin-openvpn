@@ -1,0 +1,558 @@
+#!/bin/bash
+# Server-side operations for an OpenVPN server.
+#
+#   vpn-server status [--json]        unit state, listening port, connections
+#   vpn-server show-config            print server.conf
+#   vpn-server apply-config <file>    install a config, restart, roll back on failure
+#   vpn-server set-port <port> [proto] change the listening port everywhere it appears
+#   vpn-server init --host <name> [opts]   build a server from nothing
+#
+# WHY set-port IS ONE OPERATION AND NOT AN EDITABLE FIELD: the listening port
+# exists in three places that must agree - server.conf, the UPnP mapping in
+# /etc/default/upnp-port-forward, and the `remote` line inside every issued
+# .ovpn profile. Changing one of them leaves a server that starts cleanly,
+# reports itself healthy, and is unreachable from every existing client. So
+# the port is changed by an operation that updates all three or none.
+#
+# WHY THE CHECK IS A RESTART AND NOT A PARSER: OpenVPN has no dry-run mode,
+# and a second-guess parser here would be a weaker authority than the daemon
+# itself. apply-config therefore backs up, installs, restarts, asks systemd
+# whether the unit came up, and restores the backup if it did not. This host
+# is administered over ssh rather than through the tunnel, so a failed restart
+# costs the VPN, not access to the box.
+#
+# Paths are overridable so the suite can exercise this code against a fixture
+# site with a mocked systemctl.
+#
+# SITE IDENTITY LIVES IN /etc/default/vpn-tools, NOT HERE. This repository is
+# public; the defaults below are placeholders. See DEPLOY.md.
+set -uo pipefail
+
+SITE_CONF=${SITE_CONF:-/etc/default/vpn-tools}
+# shellcheck source=/dev/null
+[ -r "$SITE_CONF" ] && . "$SITE_CONF"
+
+SERVER_DIR=${SERVER_DIR:-/etc/openvpn/server}
+EASYRSA_DIR=${EASYRSA_DIR:-/etc/openvpn/easyrsa}
+EASYRSA_BIN=${EASYRSA_BIN:-}
+# Where to look when EASYRSA_BIN is not set and the CA directory has no copy.
+# Overridable so an unusual install can be found, and so the "not installed"
+# path can be tested on a machine that does have easy-rsa.
+EASYRSA_SEARCH_PATH=${EASYRSA_SEARCH_PATH:-/usr/share/easy-rsa:/usr/local/share/easy-rsa:/usr/share/easyrsa}
+CLIENT_DIR=${CLIENT_DIR:-/etc/openvpn/clients}
+STATUS_FILE=${STATUS_FILE:-/var/log/openvpn/status.log}
+SERVER_UNIT=${SERVER_UNIT:-openvpn-server@server}
+UPNP_UNIT=${UPNP_UNIT:-upnp-port-forward.service}
+UPNP_DEFAULTS=${UPNP_DEFAULTS:-/etc/default/upnp-port-forward}
+VPN_CLIENT=${VPN_CLIENT:-/usr/local/sbin/vpn-client}
+SERVER_CONF=$SERVER_DIR/server.conf
+
+need_root() {
+    [ "$(id -u)" -eq 0 ] || { echo "must run as root" >&2; exit 1; }
+}
+
+conf_value() {
+    awk -v k="$1" '$1 == k { v = $2 } END { print v }' "$SERVER_CONF"
+}
+
+timestamp() {
+    date +%Y%m%d-%H%M%S
+}
+
+json_string() {
+    if [ -z "${1:-}" ]; then
+        printf 'null'
+    else
+        printf '"%s"' "$(printf '%s' "$1" | sed 's/\\/\\\\/g; s/"/\\"/g')"
+    fi
+}
+
+connected_count() {
+    local count
+    # grep -c prints 0 AND exits 1 when nothing matches, so a `|| echo 0`
+    # fallback fires as well and emits two lines. That is the ordinary state
+    # of a server nobody is connected to, and it produced JSON the module
+    # could not parse.
+    count=$(grep -c '^CLIENT_LIST' "$STATUS_FILE" 2>/dev/null)
+    case "$count" in
+        ''|*[!0-9]*) count=0 ;;
+    esac
+    printf '%s\n' "$count"
+}
+
+crl_next_update() {
+    local crl=$SERVER_DIR/pki/crl.pem
+    [ -r "$crl" ] || return 0
+    openssl crl -in "$crl" -noout -nextupdate 2>/dev/null | sed 's/nextUpdate=//'
+}
+
+# systemd is the only authority on whether the config the daemon just read is
+# usable. is-active alone is not enough: a unit that fails at startup can be
+# briefly "activating", so this waits for it to settle.
+unit_active() {
+    local unit=$1 tries=${2:-10} state
+    while [ "$tries" -gt 0 ]; do
+        state=$(systemctl is-active "$unit" 2>/dev/null)
+        case "$state" in
+            active) return 0 ;;
+            failed|inactive) return 1 ;;
+        esac
+        tries=$((tries - 1))
+        sleep 1
+    done
+    return 1
+}
+
+cmd_status() {
+    local active port proto count crl
+    active=$(systemctl is-active "$SERVER_UNIT" 2>/dev/null)
+    [ -n "$active" ] || active=unknown
+    port=$(conf_value port)
+    proto=$(conf_value proto)
+    count=$(connected_count)
+    crl=$(crl_next_update)
+    if [ "${1:-}" = "--json" ]; then
+        printf '{"unit":%s,"active":%s,"port":%s,"proto":%s,"connected":%s,"crl_next_update":%s,"config":%s}\n' \
+            "$(json_string "$SERVER_UNIT")" "$(json_string "$active")" \
+            "$(json_string "$port")" "$(json_string "$proto")" \
+            "$count" "$(json_string "$crl")" "$(json_string "$SERVER_CONF")"
+    else
+        printf 'unit           %s (%s)\n' "$SERVER_UNIT" "$active"
+        printf 'listening      %s/%s\n' "$port" "$proto"
+        printf 'connected      %s\n' "$count"
+        printf 'CRL next update %s\n' "${crl:-unknown}"
+        printf 'config         %s\n' "$SERVER_CONF"
+    fi
+}
+
+# Cheap structural check. It is not a validator - the restart is - it only
+# stops an obviously truncated or unrelated file from reaching the daemon.
+config_sane() {
+    local file=$1 key
+    [ -s "$file" ] || { echo "candidate config is empty" >&2; return 1; }
+    for key in port proto dev ca cert key; do
+        grep -qE "^[[:space:]]*${key}[[:space:]]" "$file" ||
+            { echo "candidate config has no '$key' directive" >&2; return 1; }
+    done
+}
+
+# apply_config <candidate> [extra-file-to-roll-back ...]
+# Every extra file must already have a matching .bak-<stamp> beside it.
+apply_config() {
+    local candidate=$1 stamp backup rc
+    shift
+    config_sane "$candidate" || return 1
+    stamp=$(timestamp)
+    backup=$SERVER_CONF.bak-$stamp
+    cp -a "$SERVER_CONF" "$backup" || {
+        echo "could not back up $SERVER_CONF" >&2; return 1; }
+    install -m 644 "$candidate" "$SERVER_CONF" || {
+        echo "could not install candidate config" >&2; return 1; }
+
+    systemctl restart "$SERVER_UNIT"
+    rc=$?
+    if [ "$rc" -eq 0 ] && unit_active "$SERVER_UNIT"; then
+        echo "applied; backup kept at $backup"
+        return 0
+    fi
+
+    echo "ROLLED BACK: $SERVER_UNIT did not come up with the new config" >&2
+    cp -a "$backup" "$SERVER_CONF"
+    local f
+    for f in "$@"; do
+        [ -f "$f.rollback" ] && cp -a "$f.rollback" "$f"
+    done
+    systemctl restart "$SERVER_UNIT"
+    if unit_active "$SERVER_UNIT"; then
+        echo "the previous configuration is running again" >&2
+    else
+        echo "THE SERVER IS DOWN and the previous config did not restore it - " \
+             "check 'systemctl status $SERVER_UNIT' now" >&2
+    fi
+    return 1
+}
+
+cmd_set_port() {
+    local port=$1 proto=${2:-} cur_port cur_proto tmp
+    case "$port" in
+        ''|*[!0-9]*) echo "port must be a number" >&2; return 1 ;;
+    esac
+    if [ "$port" -lt 1 ] || [ "$port" -gt 65535 ]; then
+        echo "port must be between 1 and 65535" >&2
+        return 1
+    fi
+    cur_port=$(conf_value port)
+    cur_proto=$(conf_value proto)
+    [ -n "$proto" ] || proto=$cur_proto
+    case "$proto" in
+        udp|tcp|udp6|tcp6) ;;
+        *) echo "protocol must be udp, tcp, udp6 or tcp6" >&2; return 1 ;;
+    esac
+    if [ "$port" = "$cur_port" ] && [ "$proto" = "$cur_proto" ]; then
+        echo "already listening on $cur_port/$cur_proto - nothing to do"
+        return 0
+    fi
+
+    tmp=$(mktemp) || return 1
+    sed -e "s/^[[:space:]]*port[[:space:]].*/port $port/" \
+        -e "s/^[[:space:]]*proto[[:space:]].*/proto $proto/" \
+        "$SERVER_CONF" > "$tmp"
+
+    # The UPnP mapping is updated first and rolled back by apply_config if the
+    # server refuses the new config, so the two can never disagree.
+    if [ -f "$UPNP_DEFAULTS" ]; then
+        cp -a "$UPNP_DEFAULTS" "$UPNP_DEFAULTS.rollback"
+        cp -a "$UPNP_DEFAULTS" "$UPNP_DEFAULTS.bak-$(timestamp)"
+        sed -i -e "s/^PORT=.*/PORT=$port/" \
+               -e "s/^PROTO=.*/PROTO=$(printf '%s' "${proto%6}" | tr '[:lower:]' '[:upper:]')/" \
+               "$UPNP_DEFAULTS"
+    fi
+
+    if ! apply_config "$tmp" "$UPNP_DEFAULTS"; then
+        rm -f "$tmp" "$UPNP_DEFAULTS.rollback"
+        return 1
+    fi
+    rm -f "$tmp" "$UPNP_DEFAULTS.rollback"
+
+    # Existing profiles still name the old port; without this every client
+    # keeps a config that connects to nothing.
+    if [ -x "$VPN_CLIENT" ]; then
+        "$VPN_CLIENT" regen --all || {
+            echo "server is on $port/$proto but profile regeneration failed - " \
+                 "run '$VPN_CLIENT regen --all' before handing out any profile" >&2
+            return 1
+        }
+    else
+        echo "WARNING: $VPN_CLIENT not found; existing profiles still name" \
+             "$cur_port and will not connect" >&2
+    fi
+
+    # PartOf ties the mapping to the server unit, but restarting it explicitly
+    # means the new port is requested from the router now rather than at the
+    # next timer tick.
+    systemctl restart "$UPNP_UNIT" 2>/dev/null ||
+        echo "note: could not restart $UPNP_UNIT; the timer will re-request the mapping" >&2
+
+    echo "listening on $port/$proto; profiles regenerated"
+}
+
+# --- creating a server from nothing ---------------------------------------
+#
+# init is the only place a port is an ordinary value rather than a guarded
+# operation, and that is not an exception to the rule: set-port is careful
+# because copies of the port already exist in the UPnP mapping and in every
+# issued profile. At init there are no copies, so one field decides all of
+# them at once. The invariant is the same; only the situation differs.
+
+# Distributions put easy-rsa in several places and the module's own directory
+# may already hold a copy. Prefer an explicit setting, then a local copy, then
+# the usual system locations - and fail loudly rather than guessing.
+# init runs easyrsa after cd-ing into the PKI directory, so a relative path
+# would resolve against the wrong directory and fail with nothing but
+# "init-pki failed". Every candidate is returned absolute.
+abs_path() {
+    local dir base
+    dir=$(cd "$(dirname "$1")" 2>/dev/null && pwd) || return 1
+    base=$(basename "$1")
+    printf '%s/%s\n' "$dir" "$base"
+}
+
+find_easyrsa() {
+    local dir
+    if [ -n "$EASYRSA_BIN" ]; then
+        [ -x "$EASYRSA_BIN" ] || return 1
+        abs_path "$EASYRSA_BIN"
+        return 0
+    fi
+    if [ -x "$EASYRSA_DIR/easyrsa" ]; then
+        abs_path "$EASYRSA_DIR/easyrsa"
+        return 0
+    fi
+    local IFS=:
+    for dir in $EASYRSA_SEARCH_PATH; do
+        if [ -x "$dir/easyrsa" ]; then
+            abs_path "$dir/easyrsa"
+            return 0
+        fi
+    done
+    return 1
+}
+
+# OpenVPN 2.6 spells this `--genkey secret FILE`; 2.4 and earlier require
+# `--genkey --secret FILE`. Both forms exit zero on the version that knows
+# them, so the file itself is the test: a rejected form leaves nothing.
+gen_tls_crypt() {
+    local out=$1
+    openvpn --genkey secret "$out" >/dev/null 2>&1
+    [ -s "$out" ] && return 0
+    rm -f "$out"
+    openvpn --genkey --secret "$out" >/dev/null 2>&1
+    [ -s "$out" ] && return 0
+    rm -f "$out"
+    return 1
+}
+
+valid_hostname() {
+    case "${1:-}" in
+        ""|*[!a-zA-Z0-9.-]*) return 1 ;;
+        -*|*-|.*|*.) return 1 ;;
+        *) return 0 ;;
+    esac
+}
+
+write_server_conf() {
+    local host=$1 port=$2 proto=$3 net=$4 mask=$5 cn=$6 route=$7 dns=$8
+    cat > "$SERVER_CONF" <<EOF
+# OpenVPN server, generated by vpn-server init.
+#
+# Clients reach this server at $host:$port/$proto. Change the port with
+# \`vpn-server set-port\`, never by editing this file: the port also appears in
+# the UPnP mapping and inside every issued profile, and changing one of them
+# alone leaves a server that starts cleanly and answers nobody.
+
+port $port
+proto $proto
+dev tun
+topology subnet
+
+server $net $mask
+ifconfig-pool-persist /var/log/openvpn/ipp.txt
+
+EOF
+    if [ -n "$route" ]; then
+        cat >> "$SERVER_CONF" <<EOF
+# Split tunnel: only the routes pushed here go through the VPN, so ordinary
+# internet traffic on a client is untouched. Add redirect-gateway for a full
+# tunnel.
+push "route $route"
+EOF
+    fi
+    if [ -n "$dns" ]; then
+        printf 'push "dhcp-option DNS %s"\n' "$dns" >> "$SERVER_CONF"
+    fi
+    cat >> "$SERVER_CONF" <<EOF
+
+ca   pki/ca.crt
+cert pki/$cn.crt
+key  pki/$cn.key
+crl-verify pki/crl.pem
+dh none
+tls-crypt tls-crypt.key
+
+data-ciphers AES-256-GCM:CHACHA20-POLY1305
+data-ciphers-fallback AES-256-GCM
+auth SHA512
+tls-version-min 1.2
+
+keepalive 10 60
+persist-key
+persist-tun
+user nobody
+group nogroup
+
+status /var/log/openvpn/status.log 30
+log-append /var/log/openvpn/openvpn.log
+verb 3
+explicit-exit-notify 1
+EOF
+    chmod 644 "$SERVER_CONF"
+}
+
+cmd_init() {
+    local host='' port=1194 proto=auto cn=server curve=secp384r1
+    local net=10.8.0.0 mask=255.255.255.0 route='' dns='' easyrsa easyrsa_src
+    while [ $# -gt 0 ]; do
+        case "$1" in
+            --host) host=${2:?--host needs a value}; shift 2 ;;
+            --port) port=${2:?--port needs a value}; shift 2 ;;
+            --proto) proto=${2:?--proto needs a value}; shift 2 ;;
+            --cn) cn=${2:?--cn needs a value}; shift 2 ;;
+            --net) net=${2:?--net needs a value}; shift 2 ;;
+            --mask) mask=${2:?--mask needs a value}; shift 2 ;;
+            --push) route=${2:?--push needs a value}; shift 2 ;;
+            --dns) dns=${2:?--dns needs a value}; shift 2 ;;
+            --curve) curve=${2:?--curve needs a value}; shift 2 ;;
+            *) echo "unknown option: $1" >&2; return 1 ;;
+        esac
+    done
+
+    valid_hostname "$host" ||
+        { echo "--host is required: the name clients will dial" >&2; return 1; }
+    case "$port" in
+        ''|*[!0-9]*) echo "port must be a number" >&2; return 1 ;;
+    esac
+    if [ "$port" -lt 1 ] || [ "$port" -gt 65535 ]; then
+        echo "port must be between 1 and 65535" >&2
+        return 1
+    fi
+    # udp6 and tcp6 open a dual-stacked socket that accepts both families;
+    # plain udp and tcp bind one family only, in practice IPv4, which leaves a
+    # client on an IPv6-only mobile network unable to reach the server at all.
+    # Verified on Ubuntu 24.04: an AF_INET6 socket with IPV6_V6ONLY unset
+    # receives IPv4 datagrams as ::ffff: addresses.
+    #
+    # Detected rather than assumed, because a host with IPv6 disabled in the
+    # kernel cannot bind udp6 and the server would refuse to start.
+    if [ "$proto" = auto ]; then
+        if [ -e /proc/net/if_inet6 ]; then
+            proto=udp6
+        else
+            proto=udp
+            echo "note: no IPv6 on this host, listening on IPv4 only" >&2
+        fi
+    fi
+    case "$proto" in
+        udp|tcp|udp6|tcp6) ;;
+        *) echo "protocol must be udp, tcp, udp6 or tcp6" >&2; return 1 ;;
+    esac
+    valid_hostname "$cn" || { echo "--cn: letters, digits, dot and hyphen only" >&2; return 1; }
+    case "$curve" in
+        ''|*[!a-zA-Z0-9]*) echo "--curve: letters and digits only" >&2; return 1 ;;
+    esac
+
+    # Refuse rather than overwrite. An existing PKI is not reproducible: every
+    # profile ever issued from it stops verifying the moment it is replaced.
+    if [ -e "$SERVER_CONF" ] || [ -d "$EASYRSA_DIR/pki" ]; then
+        echo "a server already exists here" >&2
+        echo "  config: $SERVER_CONF" >&2
+        echo "  pki:    $EASYRSA_DIR/pki" >&2
+        echo "Remove them deliberately if you really mean to start over;" >&2
+        echo "every issued profile stops working when the CA changes." >&2
+        return 1
+    fi
+
+    easyrsa=$(find_easyrsa) || {
+        echo "easy-rsa not found - install it, or set EASYRSA_BIN" >&2
+        return 1
+    }
+
+    # EASY-RSA DEFAULTS TO RSA 2048. Verified against easy-rsa 3.1.7: with
+    # these unset, build-ca produces rsaEncryption 2048 bit.
+    export EASYRSA_ALGO=ec
+    export EASYRSA_CURVE=$curve
+
+    mkdir -p "$EASYRSA_DIR" "$SERVER_DIR/pki" "$CLIENT_DIR" || return 1
+    chmod 700 "$CLIENT_DIR"
+
+    # Give the CA directory the shape make-cadir produces: the easyrsa entry
+    # point and x509-types symlinked in, openssl-easyrsa.cnf and vars copied.
+    # This is not cosmetic. easy-rsa resolves its own support files relative to
+    # the path it was invoked by, and vpn-client runs ./easyrsa from this
+    # directory - so without the symlink a server built here could never issue
+    # a client, which is exactly what the end-to-end stage caught.
+    easyrsa_src=$(dirname "$easyrsa")
+    ln -sfn "$easyrsa" "$EASYRSA_DIR/easyrsa"
+    if [ -d "$easyrsa_src/x509-types" ]; then
+        ln -sfn "$easyrsa_src/x509-types" "$EASYRSA_DIR/x509-types"
+    fi
+    if [ -f "$easyrsa_src/openssl-easyrsa.cnf" ]; then
+        cp -a "$easyrsa_src/openssl-easyrsa.cnf" "$EASYRSA_DIR/"
+    fi
+    # vars is where the algorithm belongs, not only in this script's
+    # environment: easy-rsa sources it on every invocation, so vpn-client and
+    # anyone running ./easyrsa by hand inherit the same settings. Exporting
+    # them from here alone would make EC a property of how the CA happened to
+    # be created rather than a property of the CA directory.
+    if [ ! -f "$EASYRSA_DIR/vars" ]; then
+        cat > "$EASYRSA_DIR/vars" <<EOF
+# Easy-RSA settings, written by vpn-server init.
+# Elliptic curve rather than RSA: smaller keys, faster handshakes, and
+# noticeably lighter on a phone holding an always-on tunnel.
+set_var EASYRSA_ALGO           $EASYRSA_ALGO
+set_var EASYRSA_CURVE          $EASYRSA_CURVE
+set_var EASYRSA_CA_EXPIRE      3650
+set_var EASYRSA_CERT_EXPIRE    1080
+set_var EASYRSA_CRL_DAYS       3650
+set_var EASYRSA_DIGEST         "sha512"
+set_var EASYRSA_BATCH          "1"
+EOF
+    fi
+    easyrsa=$EASYRSA_DIR/easyrsa
+
+    echo "building the certificate authority ($EASYRSA_ALGO $EASYRSA_CURVE)..."
+    # </dev/null on every call: easy-rsa 3.0.x prompts for a PEM passphrase
+    # even when told nopass, and with stdin inherited that waits forever. A
+    # CGI that hangs is worse than one that fails, so a prompt becomes an
+    # immediate error instead.
+    ( cd "$EASYRSA_DIR" && "$easyrsa" --batch init-pki ) >/dev/null 2>&1 </dev/null ||
+        { echo "init-pki failed" >&2; return 1; }
+    ( cd "$EASYRSA_DIR" && EASYRSA_REQ_CN="$host CA" \
+        "$easyrsa" --batch build-ca nopass ) >/dev/null 2>&1 </dev/null || {
+        echo "build-ca failed" >&2
+        echo "easy-rsa 3.1 or newer is required: 3.0.x asks for a passphrase" >&2
+        echo "here despite nopass, which cannot be answered unattended." >&2
+        return 1
+    }
+    ( cd "$EASYRSA_DIR" && "$easyrsa" --batch build-server-full "$cn" nopass ) \
+        >/dev/null 2>&1 </dev/null ||
+        { echo "build-server-full failed" >&2; return 1; }
+    ( cd "$EASYRSA_DIR" && "$easyrsa" --batch gen-crl ) >/dev/null 2>&1 </dev/null ||
+        { echo "gen-crl failed" >&2; return 1; }
+
+    install -m 644 "$EASYRSA_DIR/pki/ca.crt" "$SERVER_DIR/pki/ca.crt" || return 1
+    install -m 600 "$EASYRSA_DIR/pki/issued/$cn.crt" "$SERVER_DIR/pki/$cn.crt" || return 1
+    install -m 600 "$EASYRSA_DIR/pki/private/$cn.key" "$SERVER_DIR/pki/$cn.key" || return 1
+    install -m 644 "$EASYRSA_DIR/pki/crl.pem" "$SERVER_DIR/pki/crl.pem" || return 1
+
+    gen_tls_crypt "$SERVER_DIR/tls-crypt.key" ||
+        { echo "could not generate the tls-crypt key" >&2; return 1; }
+    chmod 600 "$SERVER_DIR/tls-crypt.key"
+
+    write_server_conf "$host" "$port" "$proto" "$net" "$mask" "$cn" "$route" "$dns"
+
+    # The site file is what stops the host name living in any script.
+    if [ -n "$SITE_CONF" ] && [ "$SITE_CONF" != /dev/null ]; then
+        umask 077
+        cat > "$SITE_CONF" <<EOF
+# Site identity for vpn-client and vpn-server. Written by vpn-server init.
+REMOTE_HOST=$host
+SERVER_UNIT=$SERVER_UNIT
+EOF
+        chmod 600 "$SITE_CONF"
+    fi
+
+    systemctl enable --now "$SERVER_UNIT" >/dev/null 2>&1
+    if unit_active "$SERVER_UNIT"; then
+        echo "server is running on $port/$proto as $SERVER_UNIT"
+    else
+        echo "configuration written, but $SERVER_UNIT did not start" >&2
+        echo "check 'systemctl status $SERVER_UNIT' and the OpenVPN log" >&2
+        return 1
+    fi
+    echo "  ca:      $EASYRSA_DIR/pki/ca.crt"
+    echo "  config:  $SERVER_CONF"
+    echo "  clients: add one with 'vpn-client add <name>'"
+    echo
+    echo "Still to do by hand: allow $port/$proto inbound, and enable IP"
+    echo "forwarding if clients should reach anything beyond this host."
+}
+
+case "${1:-status}" in
+status)
+    cmd_status "${2:-}"
+    ;;
+show-config)
+    [ -r "$SERVER_CONF" ] || { echo "cannot read $SERVER_CONF" >&2; exit 1; }
+    cat "$SERVER_CONF"
+    ;;
+apply-config)
+    need_root
+    file=${2:?usage: vpn-server apply-config <file>}
+    [ -r "$file" ] || { echo "cannot read $file" >&2; exit 1; }
+    apply_config "$file" || exit 1
+    ;;
+init)
+    need_root
+    shift
+    cmd_init "$@" || exit 1
+    ;;
+set-port)
+    need_root
+    port=${2:?usage: vpn-server set-port <port> [udp|tcp]}
+    cmd_set_port "$port" "${3:-}" || exit 1
+    ;;
+*)
+    echo "usage: vpn-server {status [--json]|show-config|apply-config <file>|set-port <port> [udp|tcp]|init --host <name> [--port N] [--proto udp|tcp] [--cn NAME] [--net ADDR] [--mask MASK] [--push ROUTE] [--dns ADDR] [--curve NAME]}" >&2
+    exit 2
+    ;;
+esac
