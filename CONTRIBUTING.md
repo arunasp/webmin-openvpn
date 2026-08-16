@@ -29,6 +29,10 @@ make e2e-matrix    # e2e against each release in EASYRSA_REFS
 Run `make e2e` before trusting any change to `vpn-server init`. The fixture
 cannot prove what easy-rsa itself does; see "Test doubles" below.
 
+CI runs on pull requests, including from forks. A branch with no pull
+request open gets no CI run, so open a draft one early or rely on `make
+all`, which runs the same stages.
+
 Before pushing:
 
 ```sh

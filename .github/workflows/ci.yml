@@ -5,12 +5,20 @@ name: CI
 # need: the first needs nothing, the second needs the network to fetch upstream
 # dependencies, and the last two need a container and a tun device.
 
-# Development branches. main is handled by release.yml, which runs the same
-# stages and then tags and publishes; running both on main would duplicate
-# every job.
+# Pull requests, from this repository and from forks alike. main is handled
+# by release.yml, which runs the same stages and then tags and publishes.
+#
+# There is no push trigger. With both, every branch that has a pull request
+# open runs the whole pipeline twice, and the two runs produce check names
+# that differ only by an event suffix - so a branch protection rule naming
+# the job has nothing to match, and sits waiting for a status that will not
+# arrive. A fork contributor only ever generates the pull_request event here
+# anyway: their push happens in their own repository.
+#
+# The cost is that a branch with no pull request open gets no CI. Open a
+# draft pull request to get it, or run make all locally, which is the same
+# set of stages.
 on:
-  push:
-    branches-ignore: [main]
   pull_request:
   workflow_dispatch:
 
