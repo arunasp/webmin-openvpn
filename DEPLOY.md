@@ -32,6 +32,7 @@ is a shell fragment, so quote anything containing spaces:
     EASYRSA_DIR=/etc/openvpn/easyrsa
     CLIENT_DIR=/etc/openvpn/clients
     SERVER_DIR=/etc/openvpn/server
+    SERVER_CONF=/etc/openvpn/server/server.conf  # only if it is named otherwise
     STATUS_FILE=/var/log/openvpn/status.log
     SERVER_UNIT=openvpn-server@server
     UPNP_UNIT=upnp-port-forward.service
@@ -147,6 +148,19 @@ entirely for an installation somewhere else. An existing CA directory holds
 its own ./easyrsa symlink from when it was created, so repoint that too:
 
     ln -sfn /usr/local/share/easy-rsa/easyrsa /etc/openvpn/easyrsa/easyrsa
+
+**A configuration named after the instance.** A host running openvpn@NAME
+names its file after the instance rather than server.conf. Set SERVER_CONF
+to the full path; the port, protocol and pushed routes are read from
+whatever it points at.
+
+**An older directory layout.** These tools manage one server, with an
+easy-rsa 3 PKI at EASYRSA_DIR holding pki/index.txt, pki/issued and
+pki/private, and client profiles as flat .ovpn files in CLIENT_DIR. A host
+that keeps several servers side by side, or its keys somewhere the CA
+directory does not own, is a different arrangement rather than a different
+setting - the certificates would have to move into an easy-rsa 3 PKI first,
+and moving a CA invalidates every profile issued from it.
 
 **A unit with another name.** Distributions ship both openvpn@NAME and
 openvpn-server@NAME. Set SERVER_UNIT to whichever this host runs. Naming

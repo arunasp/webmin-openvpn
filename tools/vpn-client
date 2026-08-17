@@ -39,7 +39,7 @@ REMOTE_HOST=${REMOTE_HOST:-vpn.example.com}
 REMOTE_PORT=${REMOTE_PORT:-1194}
 REMOTE_PROTO=${REMOTE_PROTO:-udp}
 
-server_conf=$SERVER_DIR/server.conf
+server_conf=${SERVER_CONF:-$SERVER_DIR/server.conf}
 if [ -r "$server_conf" ]; then
     conf_port=$(awk '$1 == "port" { p = $2 } END { print p }' "$server_conf")
     conf_proto=$(awk '$1 == "proto" { p = $2 } END { print p }' "$server_conf")
@@ -71,7 +71,7 @@ valid_name() {
 # What the server actually pushes, so the note at the top of a profile stays
 # true after a routing change instead of describing what used to be pushed.
 tunnel_note() {
-    local conf=$SERVER_DIR/server.conf routes
+    local conf=${SERVER_CONF:-$SERVER_DIR/server.conf} routes
     [ -r "$conf" ] || { echo "Routes are decided by the server."; return; }
     if grep -qE '^[[:space:]]*push[[:space:]]+"redirect-gateway' "$conf"; then
         echo "FULL TUNNEL: all traffic from this device goes through the VPN."

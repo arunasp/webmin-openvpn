@@ -353,6 +353,17 @@ assert_eq "vpn-server calls the vpn-client beside it" \
     "$sibling/vpn-client" "$resolved"
 rm -rf "$sibling"
 
+# A host that runs openvpn@NAME names the configuration after the instance,
+# and one migrated from an older layout may name it after the endpoint.
+mv "$root/server/server.conf" "$root/server/vpn.example.com-tcp.conf"
+SERVER_CONF="$root/server/vpn.example.com-tcp.conf" run_server "$root" status --json
+assert_exit "status reads a configuration named something else" 0 "$RC"
+assert_eq "and reports that path" "$root/server/vpn.example.com-tcp.conf" \
+    "$(printf '%s' "$OUT" | json_field config)"
+SERVER_CONF="$root/server/vpn.example.com-tcp.conf" run_client "$root" list --json
+assert_contains "and the profile still names the right port" "$OUT" '"port":"1194"'
+mv "$root/server/vpn.example.com-tcp.conf" "$root/server/server.conf"
+
 echo
 echo "== vpn-server: set-port refusals"
 run_server "$root" set-port abc

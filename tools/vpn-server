@@ -62,7 +62,10 @@ find_vpn_client() {
     printf '%s\n' /usr/local/sbin/vpn-client
 }
 VPN_CLIENT=${VPN_CLIENT:-$(find_vpn_client)}
-SERVER_CONF=$SERVER_DIR/server.conf
+# Not every site calls it server.conf. A host that runs openvpn@NAME names the
+# file after the instance, and one migrated from an older layout may name it
+# after the endpoint. The default matches openvpn-server@server.
+SERVER_CONF=${SERVER_CONF:-$SERVER_DIR/server.conf}
 
 need_root() {
     [ "$(id -u)" -eq 0 ] || { echo "must run as root" >&2; exit 1; }
