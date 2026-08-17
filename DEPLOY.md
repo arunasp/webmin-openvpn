@@ -124,6 +124,45 @@ trusting anything:
     vpn-client list            # the same clients the PKI knows about
     vpn-client list --json     # parses, and agrees with the table
 
+## Hosts that differ
+
+Four things vary between hosts, and each has one setting or one step behind
+it.
+
+**easy-rsa older than 3.1.** 3.0.x prompts for a PEM passphrase even when
+told nopass, so it cannot be driven unattended - which affects add and
+revoke as much as init, since all three call ./easyrsa. The tools refuse it
+with a version message rather than hanging. This is a starting condition,
+not a dead end: install a newer easy-rsa from the distribution first,
+through backports or an add-on repository, and take the upstream release
+from https://github.com/OpenVPN/easy-rsa only when the distribution has
+nothing newer. It is self-contained shell, so extracting it works:
+
+    tar xzf EasyRSA-3.x.y.tgz -C /usr/local/share
+    ln -sfn /usr/local/share/EasyRSA-3.x.y /usr/local/share/easy-rsa
+
+/usr/local/share/easy-rsa is already in the search path, so nothing needs
+configuring. EASYRSA_BIN in /etc/default/vpn-tools overrides the search
+entirely for an installation somewhere else. An existing CA directory holds
+its own ./easyrsa symlink from when it was created, so repoint that too:
+
+    ln -sfn /usr/local/share/easy-rsa/easyrsa /etc/openvpn/easyrsa/easyrsa
+
+**A unit with another name.** Distributions ship both openvpn@NAME and
+openvpn-server@NAME. Set SERVER_UNIT to whichever this host runs. Naming
+the wrong one produces a revocation that reports success while the revoked
+client stays connected.
+
+**Not Debian or Ubuntu.** The .deb is for those; everywhere else use
+install.sh, which is POSIX sh and needs only curl and sha256sum. There is
+no rpm, because there is nowhere here to test one.
+
+**A firewall that is not UPnP.** init opens no ports. Whether that is an
+iptables rule saved for the next boot, a firewalld service, or a rule
+someone set on a router once, it is the host's business and outside these
+tools. The UPnP pair below is one arrangement among those, for a site whose
+address changes.
+
 ## Optional: UPnP and dynamic DNS
 
 Two more tools ship in the same release and package. A site with a static
