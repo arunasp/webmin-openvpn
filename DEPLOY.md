@@ -135,6 +135,22 @@ Or install the downloaded and verified `openvpn-server-<version>.wbm.gz` through
 → Webmin Configuration → Webmin Modules → Install Module → From uploaded
 file**, then open **Servers → OpenVPN**.
 
+Once it is installed, check the whole installation from the server:
+
+    bash tests/smoke.sh        # read-only; safe on a working server
+
+It reads only. It confirms the tools are where the module looks and in the
+same directory, that the unit the tools name is the one systemd is running,
+that something is listening on the port they report, that every valid client
+has a profile and none is readable beyond its owner, that the revocation list
+has not expired, and that the module is installed with all its pages and
+granted to a Webmin user. It does not prove a client can connect; only a
+client connecting proves that.
+
+Creating a server is a shell step. The module manages a server that exists
+and offers no page for `vpn-server init`, so on a host with no OpenVPN
+configuration, run init first and install the module afterwards.
+
 Verifying in a browser is not optional. Webmin refuses to run its
 library-dependent Perl from outside its own directory and requires
 `WEBMIN_CONFIG` to be set, so module configuration cannot be validated from a

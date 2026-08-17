@@ -69,7 +69,7 @@ EASYRSA_REPO   = https://github.com/OpenVPN/easy-rsa.git
 EASYRSA_CLONE  = .easyrsa/easy-rsa
 EASYRSA_SRC   = $(EASYRSA_CLONE)/easyrsa3/easyrsa
 
-.PHONY: perldeps easyrsa webmin apicheck lint scan style docs test build deb dist verify reproducible preflight version e2e e2e-matrix e2e-tunnel e2e-webmin all clean distclean
+.PHONY: perldeps easyrsa webmin apicheck lint scan style docs test build deb dist verify reproducible preflight smoke version e2e e2e-matrix e2e-tunnel e2e-webmin all clean distclean
 
 version: ## Print the release version this build would produce
 	@echo "release  $(RELEASE_VERSION)"
@@ -122,6 +122,12 @@ lint: scan style docs ## Leak scan, prose, docs, ShellCheck, and Perl checks
 	else \
 	  echo "perlcritic absent - run 'make perldeps'; compile check only this run"; \
 	fi
+
+# Read-only checks against a live installation, to be run on the server after
+# installing. Not part of any other target: it needs a working server, and
+# there is not one here.
+smoke: ## Check a live installation, read-only
+	bash tests/smoke.sh
 
 # Filler words that keep coming back. Checked rather than remembered,
 # because remembering is what failed.

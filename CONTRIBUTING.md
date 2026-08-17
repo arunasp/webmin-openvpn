@@ -19,6 +19,7 @@ which runs, in order:
 | `test` | the suite, against a fixture site |
 | `build` | packages the module as a `.wbm.gz` |
 | `verify` | checks the package the way Webmin's installer does |
+| `smoke` | read-only checks against a live installation, run on the server |
 
 Two further targets need network access and are not part of `all`:
 

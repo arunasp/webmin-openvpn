@@ -4,9 +4,16 @@ A Webmin module for managing an OpenVPN server whose certificate authority is
 [easy-rsa 3](https://github.com/OpenVPN/easy-rsa), together with the two shell
 tools it drives.
 
-The module lists and issues client profiles, revokes them, and reports server
-status from the Webmin interface. It can also build a server from nothing on a
-host that has only `openvpn` and `easy-rsa` installed.
+From the Webmin interface the module issues client profiles and hands them
+over with per-platform installation notes, revokes them behind a
+confirmation that says what revocation costs, reports server status, and
+changes the listening port through the one operation that keeps the port
+consistent everywhere it appears. While the server is down it can also
+replace the configuration.
+
+The tools go further than the interface does: `vpn-server init` builds a
+server from nothing on a host that has only `openvpn` and `easy-rsa`
+installed. That one is a shell command, not a page.
 
 ## Why this exists
 
