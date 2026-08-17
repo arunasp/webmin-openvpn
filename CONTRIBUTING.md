@@ -190,6 +190,59 @@ pass, tags `vMAJOR.MINOR.BUILD` and publishes the release assets. Bump
 `VERSION` when the minor or major changes; the build number takes care of
 itself.
 
+## Testing against a router
+
+The UPnP tools are the one part of this repository no pipeline stage can
+exercise. A mapping is a lease held by a device on the local network, and
+nothing in a container image can pretend to be one convincingly - the
+fixtures under tests/fixtures/ are captured output, which covers parsing and
+nothing else.
+
+What it needs is a host with an interface on the same segment as the router,
+and a container in host networking. Discovery is SSDP multicast, so any
+network mode that puts the container behind another layer of translation
+finds no gateway however it is configured.
+
+Use a spare port and a temporary configuration, never the one a server is
+using: a failed test then costs nothing and cannot take a tunnel down with
+it. On a router someone depends on, ask first.
+
+    docker run --rm --network host -v "$PWD/tools:/tools:ro" alpine sh
+    apk add --no-cache bash miniupnpc iproute2
+    printf "PORT=41194\nPROTO=UDP\nLEASE=300\nDESC=upnp-test\n" >/tmp/upnp-test.conf
+    (nc -u -l -p 41194 &)      # open refuses a port with no listener
+    export CONF=/tmp/upnp-test.conf
+    bash /tools/upnp-port-forward open
+    bash /tools/upnp-port-forward status --json   # mapping true, a lease
+    upnpc -d 41194 UDP                            # delete it behind the tool
+    bash /tools/upnp-port-forward status --json   # exit 1, mapping false
+    bash /tools/upnp-port-forward refresh         # logs the drop, repairs it
+    bash /tools/upnp-port-forward refresh         # silent, exit 0
+    bash /tools/upnp-port-forward close
+
+That sequence is what a router does on its own when it reboots or is handed
+a new address, compressed into ten seconds. It has been run against two
+routers, and the second reported no LastConnectionError at all - a field the
+first always sent.
+
+### Inside WSL
+
+Two settings a Linux host on the network needs neither of. Mirrored
+networking, in the .wslconfig file:
+
+    [wsl2]
+    networkingMode=mirrored
+
+and an inbound rule, because the Hyper-V firewall blocks inbound traffic by
+default and drops the replies to a discovery request. WSL ships allow rules
+for ICMP and mDNS, and none for SSDP:
+
+    New-NetFirewallHyperVRule -Name WSL-SSDP-In -Direction Inbound `
+      -VMCreatorId $wsl -Protocol UDP -LocalPorts Any
+
+Without either, discovery reports no gateway found, which reads exactly like
+a router with UPnP switched off.
+
 ## Commits
 
 One commit per change, and the branch is tidied before it is pushed rather
