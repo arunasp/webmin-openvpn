@@ -275,4 +275,22 @@ for bad in '../../../etc/passwd' 'no-such-client' 'bad name'; do
     fi
 done
 
+echo
+echo "== the smoke checks, against this installation"
+# The container is an installation: tools from the package, the module
+# unpacked and granted, a server built by init. The same read-only checks
+# that will run on a server run here, so they are exercised before anyone
+# depends on them - and a stale or half-installed container fails the same
+# way a stale or half-installed server would.
+#
+# WEBMIN_ETC points at the copy this stage granted the module in, since the
+# system configuration was left alone.
+if WEBMIN_ETC="$tmp/etc" MODULE="$module" bash "$here/smoke.sh" \
+        > "$tmp/smoke.log" 2>&1; then
+    pass "the smoke checks pass against this installation"
+else
+    fail "the smoke checks pass against this installation" \
+         "$(grep '^\[FAIL\]' "$tmp/smoke.log" | head -4 | tr '\n' ' ')"
+fi
+
 report

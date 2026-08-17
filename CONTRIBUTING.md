@@ -19,7 +19,7 @@ which runs, in order:
 | `test` | the suite, against a fixture site |
 | `build` | packages the module as a `.wbm.gz` |
 | `verify` | checks the package the way Webmin's installer does |
-| `smoke` | read-only checks against a live installation, run on the server |
+| `smoke` | read-only checks against a live installation; also run by `e2e-webmin` |
 
 Two further targets need network access and are not part of `all`:
 
@@ -28,6 +28,10 @@ make apicheck      # every Webmin function the module calls exists in WEBMIN_REF
 make e2e           # init against easy-rsa itself, and apicheck
 make e2e-matrix    # e2e against each release in EASYRSA_REFS
 ```
+
+`make e2e-webmin` finishes by running the smoke checks against the
+installation it just built, so the checks a server will be judged by are
+exercised on every run rather than first used in production.
 
 Run `make e2e` before trusting any change to `vpn-server init`. The fixture
 cannot prove what easy-rsa itself does; see "Test doubles" below.

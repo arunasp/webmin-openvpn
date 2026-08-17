@@ -139,7 +139,9 @@ Once it is installed, check the whole installation from the server:
 
     bash tests/smoke.sh        # read-only; safe on a working server
 
-It reads only. It confirms the tools are where the module looks and in the
+It reads only, and it is the same script `make e2e-webmin` runs against the
+container it builds, so it is exercised on every pipeline run rather than
+first used here. It confirms the tools are where the module looks and in the
 same directory, that the unit the tools name is the one systemd is running,
 that something is listening on the port they report, that every valid client
 has a profile and none is readable beyond its owner, that the revocation list
