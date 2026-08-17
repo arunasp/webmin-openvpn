@@ -78,16 +78,21 @@ fi
 
 echo
 echo "== the tools run on this distribution"
-if vpn-server 2>&1 | grep -q 'usage: vpn-server'; then
-    pass "vpn-server runs"
-else
-    fail "vpn-server runs" "$(vpn-server 2>&1 | head -2 | tr '\n' ' ')"
-fi
-if vpn-client nosuchcommand 2>&1 | grep -q 'usage: vpn-client'; then
-    pass "vpn-client runs"
-else
-    fail "vpn-client runs" "$(vpn-client nosuchcommand 2>&1 | head -2 | tr '\n' ' ')"
-fi
+# Capture first, then match. Both tools exit non-zero when they print usage,
+# and under pipefail a pipeline whose first command failed reports failure
+# however well the grep went - which reported these as broken while the
+# output being matched was right there in the failure detail.
+out=$(vpn-server nosuchcommand 2>&1 || true)
+assert_contains "vpn-server runs" "$out" "usage: vpn-server"
+out=$(vpn-client nosuchcommand 2>&1 || true)
+assert_contains "vpn-client runs" "$out" "usage: vpn-client"
+
+# A host with the tools and no server yet is a normal state: the package
+# installs before init runs. It should say so, not fail inside awk.
+out=$(vpn-server status 2>&1 || true)
+assert_contains "status explains a missing configuration" "$out" \
+    "no server configuration at"
+assert_not_contains "without an awk error" "$out" "awk:"
 
 echo
 echo "== removal"

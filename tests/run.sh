@@ -367,6 +367,16 @@ assert_contains "and the profile still names the right port" "$OUT" '"port":"119
 mv "$root/server/vpn.example.com-tcp.conf" "$root/server/server.conf"
 
 echo
+echo "== vpn-server: no server yet"
+# The package installs the tools before there is a server, so a host with
+# no configuration is a normal state and should read as one.
+noconf=$(new_bare_fixture modern)
+SERVER_CONF="$noconf/server/absent.conf" run_server "$noconf" status
+assert_exit "status refuses without a configuration" 1 "$RC"
+assert_contains "and names the file it wanted" "$OUT" "no server configuration at"
+assert_not_contains "rather than failing inside awk" "$OUT" "awk:"
+
+echo
 echo "== vpn-server: set-port refusals"
 run_server "$root" set-port abc
 assert_exit "set-port rejects a non-numeric port" 1 "$RC"
