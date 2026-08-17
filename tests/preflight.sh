@@ -115,6 +115,30 @@ else
 fi
 
 echo
+echo "== behaviour and its prose"
+# Not an assertion. Plenty of changes to these paths need no documentation at
+# all - a test fix, a comment, an internal rename - and a rule that failed on
+# them would be argued with once and skipped thereafter.
+#
+# What make docs already enforces are the facts that can be compared:
+# subcommands, settings, make targets, module defaults, pinned versions. This
+# covers the remainder, where a behaviour changed and the sentence describing
+# it lives somewhere no check can reach.
+behaviour=$(git diff --name-only "${range[@]}" -- tools openvpn-server packaging \
+            .github Makefile 2>/dev/null | head -20)
+prose=$(git diff --name-only "${range[@]}" -- '*.md' 2>/dev/null | head -20)
+if [ -n "$behaviour" ] && [ -z "$prose" ]; then
+    echo "[note] these commits change behaviour and touch no document:"
+    printf '%s\n' "$behaviour" | sed 's/^/         /'
+    echo "       If any of it changed what the software does, the sections"
+    echo "       describing that behaviour are the ones to re-read."
+elif [ -n "$behaviour" ]; then
+    pass "behaviour and documentation both changed"
+else
+    pass "no behaviour changed"
+fi
+
+echo
 echo "== commit messages"
 # The same scanner, applied to the messages. Naming providers in a denylist
 # here would have put the very strings this is meant to keep out into a file

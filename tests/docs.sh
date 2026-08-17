@@ -115,6 +115,30 @@ for tool in vpn-server vpn-client; do
 done
 
 echo
+echo "== every setting the tools read is documented"
+# Settings are the other fact that can be compared. A tool gains a variable,
+# the operator never hears about it, and the only way to discover it is to
+# read the source - which is the same failure as an undocumented subcommand,
+# in the place where a wrong guess costs more.
+#
+# SITE_CONF names the file the rest are read from; it is documented as a path
+# rather than as a setting inside itself.
+# Word splitting is what is wanted here: the names contain no spaces, and a
+# while-read loop would run the body in a subshell where the pass and fail
+# counters would not survive.
+# shellcheck disable=SC2013
+for setting in $(grep -hoE '^[A-Z_]+=\$\{[A-Z_]+:-' \
+                 "$repo/tools/vpn-client" "$repo/tools/vpn-server" |
+                 sed 's/=.*//' | sort -u); do
+    [ "$setting" = SITE_CONF ] && continue
+    if grep -qE "\b$setting\b" "${docs[@]}"; then
+        pass "$setting is documented"
+    else
+        fail "$setting is documented" "the tools read it and no document mentions it"
+    fi
+done
+
+echo
 echo "== pinned versions in the docs match the Makefile"
 webmin_ref=$(sed -n 's/^WEBMIN_REF *?*= *//p' Makefile | head -1 | tr -d ' ')
 easyrsa_refs=$(sed -n 's/^EASYRSA_REFS *?*= *//p' Makefile | head -1)

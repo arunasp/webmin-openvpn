@@ -133,6 +133,19 @@ the ones pinned in the Makefile, that release examples use a placeholder
 rather than a version that will age, that the stage table below covers every
 prerequisite of `all` and `lint`, and that internal links resolve.
 
+The facts it compares are the ones a code change can invalidate on its own:
+every make command shown exists, every subcommand the tools offer is
+documented and every one documented exists, every setting the tools read is
+mentioned somewhere, the module settings table matches the module, pinned
+versions match the Makefile, and internal links resolve. Each of those makes
+the documentation a dependency of the code rather than a courtesy: add a
+subcommand or a setting without a sentence about it and lint fails.
+
+`make preflight` adds a note, not a failure, when unpushed commits change
+behaviour and touch no document. Plenty of changes need none - a test fix, a
+rename - so failing on them would produce a rule people argue with once and
+skip thereafter.
+
 It checks facts, not prose. Nothing can tell you an explanation has stopped
 being true; this catches the parts that can be compared against something.
 

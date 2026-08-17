@@ -38,6 +38,9 @@ is a shell fragment, so quote anything containing spaces:
     UPNP_UNIT=upnp-port-forward.service
     UPNP_DEFAULTS=/etc/default/upnp-port-forward
     VPN_CLIENT=/usr/local/sbin/vpn-client   # only if the tools are somewhere unusual
+    EASYRSA_BIN=/usr/local/share/easy-rsa/easyrsa   # a specific easy-rsa
+    EASYRSA_SEARCH_PATH=/usr/share/easy-rsa:/usr/local/share/easy-rsa
+    SERVER_CN=server                        # only if it differs from the cert name
 
 Only `REMOTE_HOST` has no sensible default. Everything else matches a stock
 easy-rsa 3 layout on Debian or Ubuntu. The server's own certificate name is
