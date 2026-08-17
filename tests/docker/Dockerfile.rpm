@@ -1,0 +1,41 @@
+# Image for the RPM stage: a Red Hat distribution, rpmbuild, and the genuine
+# Red Hat easy-rsa.
+#
+# Two things happen here that cannot happen anywhere else in this pipeline.
+# The rpm gets built and installed on the distribution it targets. And the
+# tools meet an easy-rsa laid out the Red Hat way - /usr/share/easy-rsa/3.2.1/
+# with 3 and 3.0 symlinked beside it - which until now was covered only by a
+# fixture built to match what the code expected. A fixture agreeing with the
+# code proves they agree, not that either matches a package.
+#
+# Rocky Linux because it is the freely redistributable rebuild of the
+# enterprise distribution these hosts run.
+
+FROM rockylinux:9
+
+# openvpn and easy-rsa are not in the Rocky base repositories; on el9 both
+# come from EPEL. That is a fact about the package too, not only this image:
+# the rpm's Requires can only be satisfied where EPEL is enabled, and DEPLOY
+# says so.
+RUN dnf install -y --setopt=install_weak_deps=False epel-release \
+ && dnf install -y --setopt=install_weak_deps=False \
+      rpm-build \
+      openvpn \
+      easy-rsa \
+      openssl \
+      findutils \
+      procps-ng \
+ && dnf clean all
+
+WORKDIR /src
+# The repository, not a list of paths: an enumerated COPY restates the tree
+# and drifts from it. .dockerignore names the exclusions.
+COPY . /src
+
+RUN test -f /src/packaging/rpm/openvpn-server-tools.spec \
+ && test -f /src/tools/vpn-client \
+ && test -f /src/tools/vpn-server \
+ && test -f /src/VERSION
+
+COPY tests/docker/rpm-entrypoint.sh /usr/local/bin/rpm-entrypoint.sh
+ENTRYPOINT ["bash", "/usr/local/bin/rpm-entrypoint.sh"]

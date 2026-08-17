@@ -19,6 +19,7 @@ which runs, in order:
 | `test` | the suite, against a fixture site |
 | `build` | packages the module as a `.wbm.gz` |
 | `verify` | checks the package the way Webmin's installer does |
+| `rpm` | builds and checks the rpm in a Red Hat container |
 | `smoke` | read-only checks against a live installation; also run by `e2e-webmin` |
 
 Two further targets need network access and are not part of `all`:

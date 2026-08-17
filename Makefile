@@ -69,7 +69,7 @@ EASYRSA_REPO   = https://github.com/OpenVPN/easy-rsa.git
 EASYRSA_CLONE  = .easyrsa/easy-rsa
 EASYRSA_SRC   = $(EASYRSA_CLONE)/easyrsa3/easyrsa
 
-.PHONY: perldeps easyrsa webmin apicheck lint scan style docs test build deb dist verify reproducible preflight smoke version e2e e2e-matrix e2e-tunnel e2e-webmin all clean distclean
+.PHONY: perldeps easyrsa webmin apicheck lint scan style docs test build deb rpm dist verify reproducible preflight smoke version e2e e2e-matrix e2e-tunnel e2e-webmin all clean distclean
 
 version: ## Print the release version this build would produce
 	@echo "release  $(RELEASE_VERSION)"
@@ -263,6 +263,28 @@ e2e-webmin: ## Drive the module through Webmin, in a container
 	}
 	docker build -q -f tests/docker/Dockerfile.webmin -t openvpn-server-webmin .
 	docker run --rm --ulimit nproc=8192:8192 openvpn-server-webmin
+
+# Builds the rpm on the distribution it targets, installs it, and checks the
+# result - including the one thing no Debian host can show: that
+# find_easyrsa resolves a genuine Red Hat easy-rsa, which lives in a
+# versioned subdirectory rather than the directory itself.
+#
+# --user is not used: rpm -i needs root inside the container. The entrypoint
+# chowns what it leaves in the output directory to the invoking uid instead,
+# so the rpm on the host does not belong to root.
+rpm: ## Build and check the rpm, in a Red Hat container
+	@command -v docker >/dev/null 2>&1 || { \
+	  echo "docker is required: rpmbuild is not installed here, and the"; \
+	  echo "package targets a distribution this is not."; \
+	  exit 1; \
+	}
+	docker build -q -f tests/docker/Dockerfile.rpm -t openvpn-server-rpm .
+	@mkdir -p $(BUILD)/dist
+	docker run --rm --ulimit nproc=8192:8192 \
+	  -e BUILD_NUMBER=$(BUILD_NUMBER) \
+	  -e TARGET_UID=$$(id -u) -e TARGET_GID=$$(id -g) \
+	  -v $(CURDIR)/$(BUILD)/dist:/out \
+	  openvpn-server-rpm
 
 # The only stage that proves the software does what it is for: a server,
 # a client, and a certificate that stops working when it is revoked.

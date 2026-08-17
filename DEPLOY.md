@@ -193,9 +193,19 @@ openvpn-server@NAME. Set SERVER_UNIT to whichever this host runs. Naming
 the wrong one produces a revocation that reports success while the revoked
 client stays connected.
 
-**Not Debian or Ubuntu.** The .deb is for those; everywhere else use
-install.sh, which is POSIX sh and needs only curl and sha256sum. There is
-no rpm, because there is nowhere here to test one.
+**Not Debian or Ubuntu.** The .deb is for those. There is an rpm as well,
+built and installed inside a Rocky Linux container by `make rpm` and checked
+there - including that the tools find the Red Hat easy-rsa, which lives in a
+versioned subdirectory. It is not published in a release yet: the stage that
+builds it has to run green in CI first. Until then, and on any other
+distribution, use install.sh, which is POSIX sh and needs only curl and
+sha256sum.
+
+On Red Hat 9 the rpm needs EPEL enabled. openvpn and easy-rsa are not in
+the base repositories there, so its dependencies cannot be satisfied
+without it:
+
+    dnf install epel-release
 
 **A firewall that is not UPnP.** init opens no ports. Whether that is an
 iptables rule saved for the next boot, a firewalld service, or a rule
