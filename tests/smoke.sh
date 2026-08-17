@@ -162,6 +162,16 @@ else
         "$(printf '%s' "${proto%6}" | tr '[:lower:]' '[:upper:]')" "$upnp_proto"
     if command -v upnpc >/dev/null 2>&1; then
         pass "upnpc is installed"
+        # The check that matters: the port being right in a file proves
+        # nothing about the router. A mapping is a lease, and a router that
+        # reboots or changes address forgets it - leaving a healthy server
+        # nothing can reach, with a service unit still reporting active.
+        if upnp_out=$(upnp-port-forward status 2>&1); then
+            pass "the router is forwarding the port right now"
+        else
+            fail "the router is forwarding the port right now" \
+                 "$(printf '%s' "$upnp_out" | tail -1)"
+        fi
     else
         fail "upnpc is installed" "the mapping cannot be requested without miniupnpc"
     fi

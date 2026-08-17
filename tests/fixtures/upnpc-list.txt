@@ -1,0 +1,16 @@
+for more information.
+List of UPNP devices found on the network :
+ desc: http://192.0.2.1:5000/rootDesc.xml
+ st: urn:schemas-upnp-org:device:InternetGatewayDevice:1
+Found valid IGD : http://192.0.2.1:5000/lffrXvc/ctl/IPConn
+Local LAN ip address : 192.0.2.98
+Connection Type : IP_Routed
+Status : Connected, uptime=855220s, LastConnectionError : ERROR_NONE
+  Time started : Fri Aug  7 04:00:40 2026
+MaxBitRateDown : 1000000000 bps (1000.0 Mbps)   MaxBitRateUp 1000000000 bps (1000.0 Mbps)
+ExternalIPAddress = 198.51.100.7
+ i protocol exPort->inAddr:inPort description remoteHost leaseTime
+ 0 UDP 55533->192.0.2.63:9100  'otherhostupnp' '' 0
+ 1 UDP 47348->192.0.2.63:9101  'otherhostupnp' '' 0
+ 2 UDP  1194->192.0.2.98:1194  'openvpn' '' 3344
+GetGenericPortMappingEntry() returned 713 (SpecifiedArrayIndexInvalid)

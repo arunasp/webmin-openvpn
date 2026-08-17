@@ -1,17 +1,27 @@
-# Optional, and pointless without upnp-port-forward.service.
+# Re-assert the mapping on a schedule. Optional, and pointless without
+# upnp-port-forward.service.
 #
-# The interval must be shorter than LEASE in /etc/default/upnp-port-forward,
-# or the mapping expires between runs and the VPN becomes unreachable from
-# outside until the next one.
+# OnCalendar rather than OnUnitActiveSec. OnUnitActiveSec counts from the
+# service last becoming active, and the lifecycle unit stays active forever
+# once it has run, so nothing ever restarted the clock: the timer showed
+# enabled and active with no next elapse at all, and the mapping expired an
+# hour after the last manual start. A wall-clock schedule cannot be stopped by
+# the state of the thing it triggers.
+#
+# The interval must stay well below LEASE in /etc/default/upnp-port-forward.
+# Ten minutes against an hour leaves five chances to recover before the
+# mapping lapses, which matters because a router that reboots or is given a
+# new address by the ISP forgets its mappings entirely.
 [Unit]
-Description=Re-assert the UPnP port mapping before its lease expires
+Description=Keep the UPnP port mapping for the VPN alive
 Documentation=file:/usr/sbin/upnp-port-forward
 
 [Timer]
 OnBootSec=2min
-OnUnitActiveSec=15min
+OnCalendar=*:0/10
 AccuracySec=1min
-Unit=upnp-port-forward.service
+Persistent=true
+Unit=upnp-port-forward-refresh.service
 
 [Install]
 WantedBy=timers.target

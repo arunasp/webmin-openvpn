@@ -237,6 +237,23 @@ To enable them:
     systemctl enable --now upnp-port-forward.service upnp-port-forward.timer
     upnp-port-forward status
 
+The timer runs `upnp-port-forward refresh`, which checks the router before
+acting: silent while the mapping holds, and a logged line naming the drop
+when it has gone, followed by a re-assertion. Asserting unconditionally
+would work too, since open is idempotent, but the journal would then show
+the same line every few minutes and there would be no way to tell a healthy
+site from one whose router forgets the mapping hourly:
+
+    journalctl -u upnp-port-forward-refresh.service | grep gone
+
+That command is the record of every time the tunnel went unreachable.
+
+The timer triggers upnp-port-forward-refresh.service rather than the unit
+above. The lifecycle unit stays active once it has run, and starting an
+active unit does nothing, so a timer aimed at it fires on schedule and
+re-runs nothing - which is how a mapping expires while everything reports
+healthy. Install all three files.
+
 The unit names openvpn-server@server in three places; change all three
 together if this host uses a different unit, and keep it in step with
 SERVER_UNIT. The timer interval must stay shorter than LEASE, or the
