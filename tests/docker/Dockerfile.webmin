@@ -35,6 +35,20 @@ COPY tests /src/tests
 # package cannot be named.
 COPY Makefile cicd-common.mk VERSION /src/
 COPY openvpn-server /src/openvpn-server
+# packaging/ holds the deb control file that `make deb` reads. The entrypoint
+# builds the package before installing it, so the image needs everything that
+# build reads - not only what the code under test reads.
+COPY packaging /src/packaging
+
+# Fail at build time rather than at run time. A file the entrypoint needs but
+# the image does not carry produces an error three steps into a container run,
+# where it reads as a broken pipeline stage rather than a missing COPY.
+RUN test -f /src/packaging/deb/control.in \
+ && test -x /src/tools/vpn-client \
+ && test -x /src/tools/vpn-server \
+ && test -f /src/Makefile \
+ && test -f /src/VERSION \
+ && test -f /src/openvpn-server/module.info
 
 # The tools are installed from the package, not copied into place, so this
 # stage runs the layout a server actually gets: both in /usr/sbin, which is
