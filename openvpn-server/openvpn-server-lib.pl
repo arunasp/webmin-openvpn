@@ -93,6 +93,59 @@ foreach my $dir ('/usr/sbin', '/usr/local/sbin', '/sbin', '/usr/bin') {
 return $configured;
 }
 
+# A directive's values, in the order they appear. Returns a list, since push
+# and route legitimately repeat.
+sub conf_values
+{
+my ($lines, $directive) = @_;
+my @out;
+foreach my $l (@$lines) {
+	next if ($l =~ /^\s*#/);
+	if ($l =~ /^\s*\Q$directive\E\s+(.*?)\s*$/) {
+		my $v = $1;
+		$v =~ s/\s+#.*$//;
+		push(@out, $v);
+		}
+	elsif ($l =~ /^\s*\Q$directive\E\s*$/) {
+		push(@out, '');
+		}
+	}
+return @out;
+}
+
+# Replace every occurrence of a directive with the given values, in place,
+# leaving the rest of the file untouched.
+#
+# WHY IN PLACE RATHER THAN REGENERATED: a server configuration accumulates
+# comments explaining why a line is there, and directives this module does not
+# manage. Rewriting the file from a template would discard both, and the
+# operator would have no way to know what had gone. Lines this form does not
+# manage are never read, never parsed and never written.
+#
+# A directive with no existing occurrence is appended. One whose new value
+# list is empty is removed.
+sub conf_replace
+{
+my ($lines, $directive, @values) = @_;
+my @out;
+my $done = 0;
+foreach my $l (@$lines) {
+	if ($l !~ /^\s*#/ && $l =~ /^\s*\Q$directive\E(\s|$)/) {
+		next if ($done);	# later occurrences drop out
+		$done = 1;
+		foreach my $v (@values) {
+			push(@out, $v eq '' ? $directive : "$directive $v");
+			}
+		next;
+		}
+	push(@out, $l);
+	}
+if (!$done && @values) {
+	push(@out, map { $_ eq '' ? $directive : "$directive $_" } @values);
+	}
+return \@out;
+}
+
 sub client_list
 {
 return &tool_json(&tool_path($config{'vpn_client'}), 'list', '--json');

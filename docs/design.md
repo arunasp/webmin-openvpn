@@ -125,6 +125,26 @@ produce an equivalent file with a later nextUpdate, which quietly extends
 how long the server trusts a list it was given rather than preserving what
 was there.
 
+## Settings as fields, the file as a fallback
+
+The settings page edits directives, not text. A form knows what each value
+means: it refuses a netmask that is not one, keeps pushed routes as a list,
+and writes back in place so that every directive it does not manage - and
+every comment explaining why a line is there - survives exactly as it was.
+A textarea over server.conf accepts anything, including a file that starts a
+daemon nobody can reach.
+
+Three things are kept out of it. The port and protocol belong to set-port,
+since they also live in the port mapping and in every issued profile. The
+certificate, key and tls-crypt paths are identity rather than settings.
+And the file as a whole is editable only while the server is down, which is
+the next section.
+
+What the restart check cannot catch is a configuration that starts and is
+wrong: a pushed route to the wrong network leaves a server running and
+clients unable to reach anything. The confirmation says so rather than
+implying that surviving a restart means the change was correct.
+
 ## The configuration locks down once it works
 
 What makes editing `server.conf` from a browser dangerous is losing a VPN

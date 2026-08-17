@@ -232,6 +232,29 @@ assert_contains "and refuses a post while it is running" \
     "$(cat "$tmp/apply.html")" "The server is running"
 
 echo
+echo "== the settings form"
+fetch -o "$tmp/settings.html" "$base/settings.cgi"
+setpage=$(cat "$tmp/settings.html")
+assert_contains "it offers the client network" "$setpage" "10.8.0.0"
+assert_contains "and the pushed routes" "$setpage" "routes"
+assert_contains "and the cipher list" "$setpage" "AES-256-GCM"
+assert_contains "posting to the save page" "$setpage" "save_settings.cgi"
+assert_not_contains "no tool failure" "$setpage" "could not parse"
+
+# Validation happens on the server, not in the form. A netmask that is not
+# one must be refused even when the field never saw it.
+fetch -o "$tmp/badsave.html" \
+    --data "net=10.8.0.0&mask=not-a-mask&routes=&dns=&domain=&redirect=0&keepalive=10 60&ciphers=AES-256-GCM&auth=SHA512&tlsmin=1.2&verb=3&exitnotify=1&confirm=1" \
+    "$base/save_settings.cgi"
+assert_contains "a bad netmask is refused" "$(cat "$tmp/badsave.html")" \
+    "is not a netmask"
+if grep -q "not-a-mask" /etc/openvpn/server/server.conf 2>/dev/null; then
+    fail "and nothing was written" "the configuration was changed"
+else
+    pass "and nothing was written"
+fi
+
+echo
 echo "== adding a client through the module"
 fetch -o "$tmp/add.html" -w '%{http_code}' \
     --data "name=webui-client" "$base/add.cgi" > "$tmp/add.code"

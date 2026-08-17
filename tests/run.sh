@@ -712,4 +712,16 @@ EASYRSA_SEARCH_PATH="$root/nowhere" run_init "$root" --host vpn.example.com
 assert_exit "init fails when easy-rsa is absent" 1 "$RC"
 assert_contains "and says how to fix it" "$OUT" "EASYRSA_BIN"
 
+echo
+echo "== the module's configuration rewrite"
+# Perl, and the riskiest code in the module: it edits a file a running
+# server depends on. Kept in its own script because it needs the module
+# library rather than the tools.
+if out=$(perl "$here/conf-rewrite.pl" 2>&1); then
+    pass "the rewrite preserves what the form does not manage"
+else
+    fail "the rewrite preserves what the form does not manage" \
+         "$(printf '%s' "$out" | grep '^.FAIL.' | head -3 | tr '\n' ' ')"
+fi
+
 report

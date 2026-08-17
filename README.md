@@ -124,6 +124,15 @@ Profiles are written to `/etc/openvpn/clients/<name>.ovpn`, mode `0600`, with
 the CA, certificate, private key and `tls-crypt` key inlined so a device can
 import a single file.
 
+### Changing the tunnel settings
+
+The module edits the client network, the pushed routes and DNS, the search
+domain, split or full tunnel, the cipher list, the auth digest, the minimum
+TLS version, keepalive and verbosity as fields, and writes them back in
+place: any directive it does not manage, and any comment, is left exactly as
+it was. Saving restarts the server and restores the previous configuration
+if it refuses to start.
+
 ### Changing the listening port
 
 ```sh

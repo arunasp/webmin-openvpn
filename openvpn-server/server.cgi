@@ -48,6 +48,8 @@ print &ui_table_row($text{'srv_crl'}, $server->{'crl_next_update'} || '-');
 print &ui_table_row($text{'srvpage_config'}, "<tt>$server->{'config'}</tt>");
 print &ui_table_end();
 
+print "<p><a href='settings.cgi'>$text{'srvpage_settings'}</a></p>\n";
+
 print &ui_hr();
 print "<h3>$text{'srvpage_port'}</h3>\n";
 print "<p>$text{'srvpage_portwhy'}</p>\n";
