@@ -67,6 +67,31 @@ one. The tool says so plainly rather than implying otherwise, because an
 operator who believes only one client was affected will be wrong at the worst
 possible moment.
 
+## An existing authority is adopted, not replaced
+
+A CA in another layout is in the wrong shape, not wrong. Rebuilding it
+invalidates every certificate ever issued from it: every client needs a new
+profile installed by hand, on every device, before it can connect again.
+For a site with a handful of clients that is an afternoon; for one with
+fifty it is a reason never to migrate.
+
+So `import-ca` copies the CA key, the issued certificates, the keys and the
+revocation list into the layout these tools expect, and `regen --all`
+rebuilds the profiles around the certificates that already exist. Nothing is
+reissued and no client is disturbed.
+
+Two properties make it safe to run against a directory somebody depends on.
+The source is only read, so a failed import costs nothing. And the new PKI
+is assembled beside the target, verified certificate by certificate against
+the CA, and moved into place only if all of them belong to it - a directory
+holding certificates from two authorities looks fine until a client is
+refused for a reason nobody can see.
+
+The revocation list is copied rather than regenerated. Regenerating would
+produce an equivalent file with a later nextUpdate, which quietly extends
+how long the server trusts a list it was given rather than preserving what
+was there.
+
 ## The configuration locks down once it works
 
 What makes editing `server.conf` from a browser dangerous is losing a VPN

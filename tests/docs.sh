@@ -79,6 +79,42 @@ else
 fi
 
 echo
+echo "== the documented commands and the tools agree"
+# Both directions. A command named in the docs that the tool does not offer
+# sends someone to a usage error; a command the tool offers that no document
+# mentions is a feature nobody can find, which is how import-ca reached the
+# deployment guide and neither the README nor the design notes.
+for tool in vpn-server vpn-client; do
+    offered=$(sed -n "s/.*usage: $tool {\(.*\)}.*/\1/p" "$repo/tools/$tool" |
+              tr "|" "\n" | awk '{print $1}' |
+              grep -E "^[a-z][a-z-]*$" | sort -u)
+    # Command contexts only: a line that starts with the command, or the
+    # command in backticks. A sentence saying "vpn-client and vpn-server"
+    # is prose, and reading it as a subcommand named "and" helps nobody.
+    named=$( { grep -ohE "^[[:space:]]*$tool [a-z][a-z-]*" "${docs[@]}";
+               grep -ohE "\`$tool [a-z][a-z-]*" "${docs[@]}" | tr -d '\`'; } |
+            awk '{print $2}' | sort -u)
+    missing=
+    for c in $named; do
+        printf "%s\n" "$offered" | grep -qx "$c" || missing="$missing $c"
+    done
+    if [ -z "$missing" ]; then
+        pass "every $tool command the docs name exists"
+    else
+        fail "every $tool command the docs name exists" "not offered:$missing"
+    fi
+    undocumented=
+    for c in $offered; do
+        printf "%s\n" "$named" | grep -qx "$c" || undocumented="$undocumented $c"
+    done
+    if [ -z "$undocumented" ]; then
+        pass "and every $tool command is documented somewhere"
+    else
+        fail "and every $tool command is documented somewhere" "$undocumented"
+    fi
+done
+
+echo
 echo "== pinned versions in the docs match the Makefile"
 webmin_ref=$(sed -n 's/^WEBMIN_REF *?*= *//p' Makefile | head -1 | tr -d ' ')
 easyrsa_refs=$(sed -n 's/^EASYRSA_REFS *?*= *//p' Makefile | head -1)

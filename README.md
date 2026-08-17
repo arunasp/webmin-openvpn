@@ -94,6 +94,21 @@ key, writes `server.conf` and `/etc/default/vpn-tools`, and enables the unit.
 It refuses to touch an existing server: replacing a CA invalidates every
 profile ever issued from it, so that has to be a deliberate act.
 
+### Adopting an existing certificate authority
+
+A server whose CA sits in another layout does not need a new one:
+
+```sh
+vpn-server import-ca --from /etc/openvpn/easy-rsa
+vpn-client regen --all
+```
+
+The CA key, every issued certificate and the revocation list carry over, so a
+client that worked yesterday works afterwards with the profile it already has.
+It reads easy-rsa 3 and the flat easy-rsa 2 layouts, never writes to the
+source, and refuses a directory holding certificates from more than one
+authority.
+
 ### Managing clients
 
 ```sh
@@ -112,6 +127,8 @@ import a single file.
 ### Changing the listening port
 
 ```sh
+vpn-server status               # unit state, listening port, connections
+vpn-server show-config          # print the running configuration
 vpn-server set-port 1195 udp
 ```
 
