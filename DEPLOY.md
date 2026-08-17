@@ -124,6 +124,39 @@ trusting anything:
     vpn-client list            # the same clients the PKI knows about
     vpn-client list --json     # parses, and agrees with the table
 
+## Optional: UPnP and dynamic DNS
+
+Two more tools ship in the same release and package. A site with a static
+address or a hand-configured port forward needs neither, and they are inert
+until something enables them.
+
+upnp-port-forward asks the router for an inbound mapping and re-asserts it
+on a timer, because UPnP mappings are leases and a router forgets them when
+it reboots. It refuses to open a port with nothing listening behind it, and
+removes any stale mapping it finds for that port.
+
+vpn-extip prints the external address for a dynamic DNS client. ddclient
+3.10 parses cmd= poorly when the value contains a space, so a wrapper
+taking no arguments is what makes use=cmd work.
+
+To enable them:
+
+    apt install miniupnpc
+    cp packaging/upnp-port-forward.default /etc/default/upnp-port-forward
+    cp packaging/systemd/upnp-port-forward.* /etc/systemd/system/
+    systemctl daemon-reload
+    systemctl enable --now upnp-port-forward.service upnp-port-forward.timer
+    upnp-port-forward status
+
+The unit names openvpn-server@server in three places; change all three
+together if this host uses a different unit, and keep it in step with
+SERVER_UNIT. The timer interval must stay shorter than LEASE, or the
+mapping expires between runs and the VPN goes unreachable from outside.
+
+vpn-server set-port rewrites the port and protocol in
+/etc/default/upnp-port-forward when that file exists, and says nothing when
+it does not. tests/smoke.sh checks the two agree.
+
 ## Installing the module
 
 Webmin can fetch the package itself, which saves downloading it twice:

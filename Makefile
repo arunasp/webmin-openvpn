@@ -200,6 +200,7 @@ deb: ## Build a .deb of the two tools
 	@sed 's/@VERSION@/$(RELEASE_VERSION)/' packaging/deb/control.in \
 	  > $(BUILD)/deb/DEBIAN/control
 	@install -m 0755 tools/vpn-client tools/vpn-server $(BUILD)/deb/usr/sbin/
+	@install -m 0755 tools/upnp-port-forward tools/vpn-extip $(BUILD)/deb/usr/sbin/
 	dpkg-deb --root-owner-group --build $(BUILD)/deb $(DEB_FILE)
 	@dpkg-deb -I $(DEB_FILE) | sed -n '2,7p'
 
@@ -212,7 +213,7 @@ dist: build deb ## Assemble the release assets and their checksums
 	@mkdir -p $(BUILD)/dist
 	@cp $(PACKAGE) $(BUILD)/dist/
 	@cp $(DEB_FILE) $(BUILD)/dist/
-	@cp tools/vpn-client tools/vpn-server $(BUILD)/dist/
+	@cp tools/vpn-client tools/vpn-server tools/upnp-port-forward tools/vpn-extip $(BUILD)/dist/
 	@cp packaging/install.sh $(BUILD)/dist/
 	@cd $(BUILD)/dist && sha256sum * > SHA256SUMS
 	@ls -l $(BUILD)/dist

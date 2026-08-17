@@ -1,0 +1,17 @@
+# Optional, and pointless without upnp-port-forward.service.
+#
+# The interval must be shorter than LEASE in /etc/default/upnp-port-forward,
+# or the mapping expires between runs and the VPN becomes unreachable from
+# outside until the next one.
+[Unit]
+Description=Re-assert the UPnP port mapping before its lease expires
+Documentation=file:/usr/sbin/upnp-port-forward
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=15min
+AccuracySec=1min
+Unit=upnp-port-forward.service
+
+[Install]
+WantedBy=timers.target

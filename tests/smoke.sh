@@ -148,6 +148,26 @@ if [ -n "$crl" ]; then
 fi
 
 echo
+echo "== the optional UPnP mapping"
+upnp_conf=${UPNP_DEFAULTS:-/etc/default/upnp-port-forward}
+if [ ! -e "$upnp_conf" ]; then
+    echo "   not configured on this host, which is a supported arrangement"
+else
+    # set-port keeps these in step; a mismatch means someone edited one
+    # of them by hand, and the mapping now points at a port nothing serves.
+    upnp_port=$(sed -n 's/^PORT=//p' "$upnp_conf" | tail -1)
+    upnp_proto=$(sed -n 's/^PROTO=//p' "$upnp_conf" | tail -1)
+    assert_eq "the mapping names the port the server listens on" "$port" "$upnp_port"
+    assert_eq "and the same protocol" \
+        "$(printf '%s' "${proto%6}" | tr '[:lower:]' '[:upper:]')" "$upnp_proto"
+    if command -v upnpc >/dev/null 2>&1; then
+        pass "upnpc is installed"
+    else
+        fail "upnpc is installed" "the mapping cannot be requested without miniupnpc"
+    fi
+fi
+
+echo
 echo "== the module"
 if [ -d "$WEBMIN_ROOT/$MODULE" ]; then
     pass "installed at $WEBMIN_ROOT/$MODULE"

@@ -1,0 +1,31 @@
+# Optional. Install this only where the router forwards the VPN port by UPnP
+# rather than by a static rule someone configured once.
+#
+# The OpenVPN unit is named here in three places. Change all three together if
+# this host uses openvpn@NAME rather than openvpn-server@NAME - and keep it in
+# step with SERVER_UNIT in /etc/default/vpn-tools, or the mapping and the
+# server will disagree about which service they belong to.
+[Unit]
+Description=UPnP inbound port mapping for the VPN
+Documentation=file:/usr/sbin/upnp-port-forward
+After=network-online.target
+Wants=network-online.target
+After=openvpn-server@server.service
+# PartOf, not BindsTo: stopping the VPN tears the mapping down, but this unit
+# can still be started and tested on its own. BindsTo refuses to start at all
+# while the VPN unit is absent, which makes the mapping untestable before the
+# VPN exists and reports "dependency failed" rather than something useful. The
+# safety net is the listener check inside the script, which refuses to open a
+# port with nothing behind it.
+PartOf=openvpn-server@server.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/sbin/upnp-port-forward open
+ExecStop=/usr/sbin/upnp-port-forward close
+
+[Install]
+WantedBy=multi-user.target
+# Starting the VPN pulls the mapping up with it.
+WantedBy=openvpn-server@server.service

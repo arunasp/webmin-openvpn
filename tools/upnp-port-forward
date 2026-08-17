@@ -1,0 +1,106 @@
+#!/bin/bash
+# Manage an inbound UPnP port mapping on the router, tied to a service.
+#
+# Usage: upnp-port-forward {open|close|extip|status}
+# Config: /etc/default/upnp-port-forward
+#
+# OPTIONAL. A server reachable on a static address, or one whose port is
+# forwarded by hand, needs none of this. Nothing here runs unless the unit is
+# enabled, and vpn-server works whether or not this exists: it updates the
+# mapping's port when it finds the configuration file and says nothing when
+# it does not.
+#
+# WHY A TIMER AS WELL AS A SERVICE: UPnP mappings are leases. A lease expires,
+# and a router forgets its mappings when it reboots. `open` is therefore
+# idempotent and re-asserted periodically while the VPN is up; re-adding an
+# identical mapping is harmless.
+#
+# SAFETY: `open` refuses if nothing is listening on the port, and tears down
+# any existing mapping for it. A forwarded port pointing at a dead service is
+# worse than no mapping at all - it is an open hole nobody is watching.
+#
+# Requires miniupnpc (the upnpc command).
+set -uo pipefail
+
+CONF=${CONF:-/etc/default/upnp-port-forward}
+# shellcheck disable=SC1090
+[ -r "$CONF" ] && . "$CONF"
+
+# The interface carrying the default route, which is the one the router is on.
+# Naming an interface here would be right for one host and wrong for the next.
+default_if() {
+    ip -4 route show default 2>/dev/null | awk '{print $5; exit}'
+}
+
+WAN_IF=${WAN_IF:-$(default_if)}
+PORT=${PORT:-1194}
+PROTO=${PROTO:-UDP}
+LEASE=${LEASE:-3600}
+DESC=${DESC:-openvpn}
+# A third-party address checker, used only if the router will not answer.
+# No default: every candidate names somebody's service, and a site that wants
+# one should choose it. Without it, extip reports nothing rather than
+# reporting an answer from a party the operator did not pick.
+CHECKIP_URL=${CHECKIP_URL:-}
+
+log() { logger -t upnp-port-forward "$*" 2>/dev/null; echo "$*"; }
+
+internal_ip() {
+    [ -n "$WAN_IF" ] || return 1
+    ip -4 addr show "$WAN_IF" 2>/dev/null | awk '/inet /{print $2}' | cut -d/ -f1
+}
+
+listening() {
+    local flag
+    flag=$([ "$PROTO" = "TCP" ] && echo t || echo u)
+    ss -ln"$flag" 2>/dev/null | grep -qE ":${PORT}[[:space:]]"
+}
+
+case "${1:-}" in
+open)
+    [ -n "$WAN_IF" ] || { log "no default route interface, and WAN_IF is not set"; exit 1; }
+    ip=$(internal_ip)
+    [ -n "$ip" ] || { log "no address on $WAN_IF"; exit 1; }
+    if ! listening; then
+        log "nothing listening on $PROTO/$PORT - refusing, and removing any stale mapping"
+        upnpc -m "$WAN_IF" -d "$PORT" "$PROTO" >/dev/null 2>&1
+        exit 1
+    fi
+    out=$(upnpc -m "$WAN_IF" -e "$DESC" -a "$ip" "$PORT" "$PORT" "$PROTO" "$LEASE" 2>&1)
+    if echo "$out" | grep -q "is redirected to internal"; then
+        ext=$(echo "$out" | sed -n 's/.*ExternalIPAddress = //p' | head -1)
+        log "mapped $PROTO/$PORT -> $ip (external $ext, lease ${LEASE}s)"
+    else
+        log "FAILED to map $PROTO/$PORT: $(echo "$out" | tail -2 | tr '\n' ' ')"
+        exit 1
+    fi
+    ;;
+close)
+    upnpc -m "$WAN_IF" -d "$PORT" "$PROTO" >/dev/null 2>&1
+    log "removed mapping $PROTO/$PORT"
+    ;;
+extip)
+    # The address as the router reports it. That beats asking a third party:
+    # it is the authoritative answer, needs no round trip off the network, and
+    # cannot be confused by a proxy or a CDN.
+    ext=$(upnpc -m "$WAN_IF" -l 2>/dev/null | sed -n 's/.*ExternalIPAddress = //p' | head -1)
+    if [ -n "$ext" ]; then
+        echo "$ext"
+    elif [ -n "$CHECKIP_URL" ]; then
+        curl -s -m10 "$CHECKIP_URL" 2>/dev/null |
+            grep -oE '[0-9]+(\.[0-9]+){3}' | head -1
+    else
+        exit 1
+    fi
+    ;;
+status)
+    echo "  configured: $PROTO/$PORT -> $(internal_ip) via ${WAN_IF:-none}, lease ${LEASE}s"
+    printf '  listening:  '; listening && echo yes || echo "NO"
+    echo "  router mappings:"
+    upnpc -m "$WAN_IF" -l 2>/dev/null | grep -E "^ *[0-9]+ (UDP|TCP)" | sed 's/^/    /'
+    ;;
+*)
+    echo "usage: $0 {open|close|extip|status}" >&2
+    exit 2
+    ;;
+esac

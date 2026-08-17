@@ -1,0 +1,26 @@
+#!/bin/sh
+# Print this site's external IPv4 address.
+#
+# OPTIONAL, and useful in one place: ddclient's use=cmd strategy. ddclient
+# 3.10 parses `cmd=` poorly when the value contains a space, leaving cmd
+# undefined and reporting "unable to determine IP address" - which reads like
+# a network fault rather than a configuration one. A wrapper taking no
+# arguments avoids the space.
+#
+# It asks upnp-port-forward, which asks the router. Install both or neither.
+set -eu
+
+# The sibling copy first: these ship together, and a host with one in
+# /usr/sbin and another in /usr/local/sbin should use the pair it was
+# installed with.
+self=$(readlink -f "$0" 2>/dev/null || printf '%s' "$0")
+dir=$(dirname "$self")
+for cand in "$dir/upnp-port-forward" /usr/sbin/upnp-port-forward \
+            /usr/local/sbin/upnp-port-forward; do
+    if [ -x "$cand" ]; then
+        exec "$cand" extip
+    fi
+done
+
+echo "upnp-port-forward is not installed" >&2
+exit 1

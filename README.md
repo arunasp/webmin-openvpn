@@ -147,7 +147,7 @@ server, never in this repository. See [DEPLOY.md](DEPLOY.md) for the full list.
 
 ```
 openvpn-server/   the Webmin module
-tools/            vpn-client and vpn-server
+tools/            vpn-client and vpn-server, plus the optional UPnP pair
 tests/            test suite, fixtures, container images, repository checks
 packaging/        the .deb control file and the release installer
 docs/             design notes and client installation
