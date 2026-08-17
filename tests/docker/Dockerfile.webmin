@@ -29,20 +29,16 @@ RUN apt-get update \
  && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /src
-COPY tools /src/tools
-COPY tests /src/tests
-# VERSION too: build reads it for the release number, and without it the
-# package cannot be named.
-COPY Makefile cicd-common.mk VERSION /src/
-COPY openvpn-server /src/openvpn-server
-# packaging/ holds the deb control file that `make deb` reads. The entrypoint
-# builds the package before installing it, so the image needs everything that
-# build reads - not only what the code under test reads.
-COPY packaging /src/packaging
+# The repository, not a list of paths. An enumerated COPY restates the tree
+# and drifts from it: make, VERSION and packaging/ were each missing in turn,
+# every time because the reasoning was about what the code under test needs
+# rather than what the entrypoint runs. .dockerignore names what to leave out,
+# which is a short list that changes rarely.
+COPY . /src
 
 # Fail at build time rather than at run time. A file the entrypoint needs but
 # the image does not carry produces an error three steps into a container run,
-# where it reads as a broken pipeline stage rather than a missing COPY.
+# where it reads as a broken pipeline stage rather than a missing file.
 RUN test -f /src/packaging/deb/control.in \
  && test -x /src/tools/vpn-client \
  && test -x /src/tools/vpn-server \
