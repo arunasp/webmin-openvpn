@@ -120,6 +120,10 @@ program.
     install -o root -g root -m 0755 vpn-client /usr/local/sbin/vpn-client
     install -o root -g root -m 0755 vpn-server /usr/local/sbin/vpn-server
 
+The release carries two more, `upnp-port-forward` and `vpn-extip`. They are
+optional and inert until configured; install them the same way if the site
+wants them, and skip them otherwise.
+
 `vpn-server` calls the `vpn-client` installed beside it, so both belong in the
 same directory. Then confirm against the installed site, in this order, before
 trusting anything:
@@ -130,8 +134,7 @@ trusting anything:
 
 ## Hosts that differ
 
-Four things vary between hosts, and each has one setting or one step behind
-it.
+What varies between hosts, and the setting or step behind each.
 
 **easy-rsa older than 3.1.** 3.0.x prompts for a PEM passphrase even when
 told nopass, so it cannot be driven unattended - which affects add and
@@ -261,7 +264,9 @@ mapping expires between runs and the VPN goes unreachable from outside.
 
 vpn-server set-port rewrites the port and protocol in
 /etc/default/upnp-port-forward when that file exists, and says nothing when
-it does not. tests/smoke.sh checks the two agree.
+it does not. tests/smoke.sh checks that the two agree, and that the router is
+forwarding the port at the moment it runs - the configuration being right
+says nothing about whether the mapping is still there.
 
 ## Installing the module
 
@@ -296,7 +301,9 @@ Verifying in a browser is not optional. Webmin refuses to run its
 library-dependent Perl from outside its own directory and requires
 `WEBMIN_CONFIG` to be set, so module configuration cannot be validated from a
 shell. `make apicheck` proves the functions the module calls exist in the
-target Webmin release; only the browser proves the page renders.
+target Webmin release, and `make e2e-webmin` drives the pages over HTTP in an
+installed Webmin, which is what proves they render. What neither covers is
+this installation: its configuration, its ACL grant and its tools.
 
 ## Creating a server
 

@@ -19,8 +19,14 @@ which runs, in order:
 | `test` | the suite, against a fixture site |
 | `build` | packages the module as a `.wbm.gz` |
 | `verify` | checks the package the way Webmin's installer does |
-| `rpm` | builds and checks the rpm in a Red Hat container |
-| `smoke` | read-only checks against a live installation; also run by `e2e-webmin` |
+
+Two more stages exist and are not part of `all`, because neither can run
+from a checkout alone:
+
+| Target | What it does | Needs |
+| --- | --- | --- |
+| `rpm` | builds the rpm on the distribution it targets, installs it there, and checks the result | a container engine |
+| `smoke` | read-only checks against a live installation; also run at the end of `e2e-webmin` | a running server |
 
 Two further targets need network access and are not part of `all`:
 
@@ -127,20 +133,18 @@ messages, because a push publishes history, not just the checkout.
 
 ## Keeping the documentation true
 
-`make docs` checks the facts the documentation states against the tree: that
-every `make` command it shows exists, that the module settings table matches
-the module's own defaults, that the Webmin and easy-rsa versions it names are
-the ones pinned in the Makefile, that release examples use a placeholder
-rather than a version that will age, that the stage table below covers every
-prerequisite of `all` and `lint`, and that internal links resolve.
+`make docs` compares the facts the documentation states against the tree, and
+they are the ones a code change can invalidate on its own: every `make`
+command shown exists, every subcommand the tools offer is documented and
+every one documented exists, every setting the tools read is mentioned
+somewhere, the module settings table matches the module's own defaults,
+pinned versions match the Makefile, release examples use a placeholder rather
+than a version that will age, the stage table above covers every prerequisite
+of `all` and `lint`, and internal links resolve.
 
-The facts it compares are the ones a code change can invalidate on its own:
-every make command shown exists, every subcommand the tools offer is
-documented and every one documented exists, every setting the tools read is
-mentioned somewhere, the module settings table matches the module, pinned
-versions match the Makefile, and internal links resolve. Each of those makes
-the documentation a dependency of the code rather than a courtesy: add a
-subcommand or a setting without a sentence about it and lint fails.
+Each of those makes the documentation a dependency of the code rather than a
+courtesy: add a subcommand or a setting without a sentence about it and lint
+fails.
 
 `make preflight` adds a note, not a failure, when unpushed commits change
 behaviour and touch no document. Plenty of changes need none - a test fix, a
