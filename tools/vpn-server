@@ -6,6 +6,7 @@
 #   vpn-server apply-config <file>    install a config, restart, roll back on failure
 #   vpn-server set-port <port> [proto] change the listening port everywhere it appears
 #   vpn-server init --host <name> [opts]   build a server from nothing
+#   vpn-server import-ca --from <dir>      adopt an existing CA, losslessly
 #
 # WHY set-port IS ONE OPERATION AND NOT AN EDITABLE FIELD: the listening port
 # exists in three places that must agree - server.conf, the UPnP mapping in
@@ -378,6 +379,178 @@ EOF
     chmod 644 "$SERVER_CONF"
 }
 
+# Adopt an existing certificate authority into the easy-rsa 3 layout these
+# tools expect, without reissuing anything.
+#
+# WHY THIS EXISTS: the alternative is a new CA, and a new CA invalidates every
+# certificate ever issued from the old one - every client would need a new
+# profile installed by hand, on every device, before it could connect again.
+# The CA key, the issued certificates and the revocation list all carry over
+# here, so a client that worked yesterday works afterwards with the profile it
+# already has.
+#
+# It reads the source and never writes to it. The new PKI is assembled beside
+# the target and moved into place only once every certificate in it has been
+# verified against the CA, so a failure leaves nothing half-built.
+cmd_import_ca() {
+    local src='' base='' layout='' algo='' tmp cert name count=0 bad=0
+    local easyrsa easyrsa_src
+    while [ $# -gt 0 ]; do
+        case "$1" in
+            --from) src=${2:?--from needs a directory}; shift 2 ;;
+            --algo) algo=${2:?--algo needs a value}; shift 2 ;;
+            *) echo "unknown option: $1" >&2; return 1 ;;
+        esac
+    done
+    [ -n "$src" ] || { echo "--from is required: the existing CA directory" >&2; return 1; }
+    [ -d "$src" ] || { echo "no such directory: $src" >&2; return 1; }
+
+    if [ -d "$EASYRSA_DIR/pki" ]; then
+        echo "a PKI already exists at $EASYRSA_DIR/pki" >&2
+        echo "Import builds a new one; move the existing directory aside first." >&2
+        return 1
+    fi
+
+    # easy-rsa 3 keeps everything under pki/. easy-rsa 2 and the layouts that
+    # grew out of it keep it flat, usually in a directory called keys.
+    if [ -f "$src/pki/index.txt" ]; then
+        base=$src/pki; layout=easyrsa3
+    elif [ -f "$src/index.txt" ]; then
+        base=$src; layout=flat
+    elif [ -f "$src/keys/index.txt" ]; then
+        base=$src/keys; layout=flat
+    else
+        echo "no index.txt under $src - looked in ., pki/ and keys/" >&2
+        echo "That file is the certificate database; without it there is" >&2
+        echo "nothing to adopt." >&2
+        return 1
+    fi
+
+    local ca_crt ca_key
+    ca_crt=$base/ca.crt
+    [ -f "$ca_crt" ] || { echo "no ca.crt in $base" >&2; return 1; }
+    for ca_key in "$base/private/ca.key" "$base/ca.key"; do
+        [ -f "$ca_key" ] && break
+        ca_key=''
+    done
+    [ -n "$ca_key" ] || { echo "no ca.key under $base" >&2; return 1; }
+
+    easyrsa=$(find_easyrsa) || {
+        echo "easy-rsa not found - install it, or set EASYRSA_BIN" >&2
+        return 1
+    }
+
+    echo "adopting the $layout layout in $base"
+
+    tmp=$EASYRSA_DIR/pki.import.$$
+    rm -rf "$tmp"
+    mkdir -p "$tmp/issued" "$tmp/private" "$tmp/reqs" \
+             "$tmp/revoked/certs_by_serial" || return 1
+    chmod 700 "$tmp/private"
+
+    install -m 644 "$ca_crt" "$tmp/ca.crt" || return 1
+    install -m 600 "$ca_key" "$tmp/private/ca.key" || return 1
+    install -m 644 "$base/index.txt" "$tmp/index.txt" || return 1
+    [ -f "$base/index.txt.attr" ] &&
+        install -m 644 "$base/index.txt.attr" "$tmp/index.txt.attr"
+    [ -f "$base/serial" ] && install -m 644 "$base/serial" "$tmp/serial"
+    # The revocation list carries over as it is. Regenerating it would be
+    # equivalent, but copying keeps the existing nextUpdate rather than
+    # silently extending how long the server trusts the old one.
+    [ -f "$base/crl.pem" ] && install -m 644 "$base/crl.pem" "$tmp/crl.pem"
+    [ -f "$base/dh.pem" ] && install -m 644 "$base/dh.pem" "$tmp/dh.pem"
+
+    # Certificates and keys. In the flat layouts they sit beside the CA with
+    # no subdirectories, so the CA's own pair has to be skipped explicitly.
+    if [ "$layout" = easyrsa3 ]; then
+        for cert in "$base"/issued/*.crt; do
+            [ -f "$cert" ] || continue
+            install -m 644 "$cert" "$tmp/issued/$(basename "$cert")"
+        done
+        for cert in "$base"/private/*.key; do
+            [ -f "$cert" ] || continue
+            name=$(basename "$cert")
+            [ "$name" = ca.key ] && continue
+            install -m 600 "$cert" "$tmp/private/$name"
+        done
+    else
+        for cert in "$base"/*.crt; do
+            [ -f "$cert" ] || continue
+            name=$(basename "$cert")
+            [ "$name" = ca.crt ] && continue
+            install -m 644 "$cert" "$tmp/issued/$name"
+        done
+        for cert in "$base"/*.key; do
+            [ -f "$cert" ] || continue
+            name=$(basename "$cert")
+            [ "$name" = ca.key ] && continue
+            install -m 600 "$cert" "$tmp/private/$name"
+        done
+    fi
+
+    # Every certificate must verify against the CA it came with. A directory
+    # holding certificates from two different authorities looks fine until a
+    # client is refused for a reason nobody can see.
+    for cert in "$tmp"/issued/*.crt; do
+        [ -f "$cert" ] || continue
+        count=$((count + 1))
+        if ! openssl verify -CAfile "$tmp/ca.crt" "$cert" >/dev/null 2>&1; then
+            echo "does not verify against this CA: $(basename "$cert")" >&2
+            bad=$((bad + 1))
+        fi
+    done
+    if [ "$bad" -gt 0 ]; then
+        echo "$bad of $count certificates do not belong to this CA - nothing imported" >&2
+        rm -rf "$tmp"
+        return 1
+    fi
+    [ "$count" -gt 0 ] || echo "note: the CA has issued no certificates yet" >&2
+
+    # The CA directory needs the make-cadir shape whichever way it was filled,
+    # or vpn-client cannot run ./easyrsa from it.
+    mkdir -p "$EASYRSA_DIR" "$CLIENT_DIR" || return 1
+    chmod 700 "$CLIENT_DIR"
+    easyrsa_src=$(dirname "$easyrsa")
+    ln -sfn "$easyrsa" "$EASYRSA_DIR/easyrsa"
+    [ -d "$easyrsa_src/x509-types" ] &&
+        ln -sfn "$easyrsa_src/x509-types" "$EASYRSA_DIR/x509-types"
+    [ -f "$easyrsa_src/openssl-easyrsa.cnf" ] &&
+        cp -a "$easyrsa_src/openssl-easyrsa.cnf" "$EASYRSA_DIR/"
+
+    # New clients are issued with the algorithm the CA already uses, unless
+    # asked otherwise. An RSA CA can sign EC client keys, but a site that has
+    # been RSA for years should not silently start mixing them.
+    if [ -z "$algo" ]; then
+        case "$(openssl x509 -in "$tmp/ca.crt" -noout -text 2>/dev/null |
+                sed -n 's/.*Public Key Algorithm: //p' | head -1)" in
+            id-ecPublicKey) algo=ec ;;
+            *) algo=rsa ;;
+        esac
+    fi
+    if [ ! -f "$EASYRSA_DIR/vars" ]; then
+        {
+            echo "# Easy-RSA settings, written by vpn-server import-ca."
+            echo "# The algorithm matches the adopted CA."
+            echo "set_var EASYRSA_ALGO           $algo"
+            [ "$algo" = ec ] && echo "set_var EASYRSA_CURVE          secp384r1"
+            echo "set_var EASYRSA_CA_EXPIRE      3650"
+            echo "set_var EASYRSA_CERT_EXPIRE    1080"
+            echo "set_var EASYRSA_CRL_DAYS       3650"
+        } > "$EASYRSA_DIR/vars"
+    fi
+
+    mv "$tmp" "$EASYRSA_DIR/pki" || { rm -rf "$tmp"; return 1; }
+
+    echo "imported $count certificates into $EASYRSA_DIR/pki"
+    echo "  CA:        $(openssl x509 -in "$EASYRSA_DIR/pki/ca.crt" -noout -subject | sed 's/subject=//')"
+    echo "  algorithm: $algo (new clients will use this)"
+    echo "  source:    $base, left untouched"
+    echo
+    echo "Next: vpn-client list, to see what came across."
+    echo "Then vpn-client regen --all, which rebuilds .ovpn profiles from the"
+    echo "certificates that already exist. No client needs a new certificate."
+}
+
 cmd_init() {
     local host='' port=1194 proto=auto cn=server curve=secp384r1
     local net=10.8.0.0 mask=255.255.255.0 route='' dns='' easyrsa easyrsa_src
@@ -566,13 +739,18 @@ init)
     shift
     cmd_init "$@" || exit 1
     ;;
+import-ca)
+    need_root
+    shift
+    cmd_import_ca "$@" || exit 1
+    ;;
 set-port)
     need_root
     port=${2:?usage: vpn-server set-port <port> [udp|tcp]}
     cmd_set_port "$port" "${3:-}" || exit 1
     ;;
 *)
-    echo "usage: vpn-server {status [--json]|show-config|apply-config <file>|set-port <port> [udp|tcp]|init --host <name> [--port N] [--proto udp|tcp] [--cn NAME] [--net ADDR] [--mask MASK] [--push ROUTE] [--dns ADDR] [--curve NAME]}" >&2
+    echo "usage: vpn-server {status [--json]|show-config|apply-config <file>|set-port <port> [udp|tcp]|init --host <name> [--port N] [--proto udp|tcp] [--cn NAME] [--net ADDR] [--mask MASK] [--push ROUTE] [--dns ADDR] [--curve NAME]|import-ca --from <dir> [--algo rsa|ec]}" >&2
     exit 2
     ;;
 esac

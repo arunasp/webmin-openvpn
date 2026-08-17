@@ -154,9 +154,26 @@ names its file after the instance rather than server.conf. Set SERVER_CONF
 to the full path; the port, protocol and pushed routes are read from
 whatever it points at.
 
-**An older directory layout.** These tools manage one server, with an
-easy-rsa 3 PKI at EASYRSA_DIR holding pki/index.txt, pki/issued and
-pki/private, and client profiles as flat .ovpn files in CLIENT_DIR. A host
+**An existing CA in another layout.** Adopt it rather than replacing it:
+
+    vpn-server import-ca --from /etc/openvpn/easy-rsa
+
+The CA key, every issued certificate and the revocation list carry over,
+so a client that worked yesterday works afterwards with the profile it
+already has. It reads the source and never writes to it, assembles the new
+PKI beside the target, verifies every certificate against the CA, and moves
+it into place only if all of them belong to it. Then:
+
+    vpn-client list             # what came across
+    vpn-client regen --all      # rebuild .ovpn files from those certificates
+
+It reads easy-rsa 3 (pki/) and the flat easy-rsa 2 layouts (keys/, or the
+directory itself). New clients are issued with the algorithm the adopted CA
+already uses, which --algo overrides.
+
+**Several servers on one host.** These tools manage one server, with an
+easy-rsa 3 PKI at EASYRSA_DIR and client profiles as flat .ovpn files in
+CLIENT_DIR. A host
 that keeps several servers side by side, or its keys somewhere the CA
 directory does not own, is a different arrangement rather than a different
 setting - the certificates would have to move into an easy-rsa 3 PKI first,
