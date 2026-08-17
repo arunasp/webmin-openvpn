@@ -67,6 +67,39 @@ one. The tool says so plainly rather than implying otherwise, because an
 operator who believes only one client was affected will be wrong at the worst
 possible moment.
 
+## Why the CA is private rather than public
+
+A public authority cannot issue what this needs. Let's Encrypt stopped
+including the TLS Client Authentication EKU in its certificates on 11
+February 2026, and retired the temporary tlsclient profile on 8 July 2026;
+the other public authorities are following the same Chrome root-program
+requirement, which separates client and server authentication into distinct
+hierarchies. Client certificates are what a VPN authenticates people with, so
+a public CA cannot supply them at any price.
+
+It could still sign the server certificate, and that is worth weighing rather
+than dismissing. The argument against it here:
+
+- Trusting a public root means trusting every certificate it issues.
+  Verifying the server would have to be pinned with verify-x509-name, or any
+  certificate from that authority would satisfy a client.
+- A 90-day certificate needs renewal and a server restart on a deploy hook.
+  A tunnel that stops working every quarter unless a hook fired is a worse
+  failure than one that never renews.
+- Validation needs the name to be reachable: port 80 for HTTP-01, or DNS-01
+  with the provider's credentials on the host.
+- The gain is that clients need no CA certificate for the server side. They
+  already carry one inline, which costs nothing to distribute.
+
+tls-crypt makes the point narrower still: packets without the key are dropped
+before the TLS handshake, so the server is not exposed to anonymous TLS in
+the first place.
+
+Where a public certificate does earn itself on this host is Webmin's own
+interface, which a browser visits and which shows a warning without one.
+That is a separate certificate for a separate service, and nothing to do
+with the VPN's PKI.
+
 ## An existing authority is adopted, not replaced
 
 A CA in another layout is in the wrong shape, not wrong. Rebuilding it
