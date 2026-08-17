@@ -790,6 +790,13 @@ assert_contains "and that it re-asserted it" "$OUT" "mapped UDP/1194"
 run_upnp_cmd upnpc-list-noigd.txt refresh
 assert_exit "refresh does not guess when no IGD answers" 2 "$RC"
 assert_not_contains "and attempts no repair" "$OUT" "mapped"
+# upnpc prints a banner naming its own website, and prints it last on
+# failure. Reporting the tail of its output therefore reports the footer.
+printf '#!/bin/sh\necho "upnpc : miniupnpc library test client"\necho "No IGD UPnP Device found on the network !"\necho "Go to http://example.invalid/ for more information."\n' > "$upnpbin/upnpc"
+chmod 755 "$upnpbin/upnpc"
+run_upnp_cmd upnpc-list.txt open
+assert_contains "a failure names the fault" "$OUT" "No IGD UPnP Device found"
+assert_not_contains "and not the tool banner" "$OUT" "for more information"
 rm -rf "$upnpbin"
 rm -f "$upnpconf"
 

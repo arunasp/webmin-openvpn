@@ -108,6 +108,26 @@ our_lease() {
             }'
 }
 
+# The line worth reading out of upnpc output.
+#
+# It prints a banner naming its own project and website, and prints it last on
+# failure - so taking the tail reports the footer and hides the fault. This
+# picks the lines that say what went wrong, and falls back to the last line
+# that is not banner text.
+upnpc_error() {
+    local out=$1 meaningful
+    meaningful=$(printf '%s\n' "$out" |
+        grep -viE 'miniupnp|tuxfamily|^ *\(c\)|^for more information|^Go to' |
+        grep -iE 'no igd|not found|failed|error|denied|refused|[0-9]{3} \(' |
+        head -2)
+    if [ -z "$meaningful" ]; then
+        meaningful=$(printf '%s\n' "$out" |
+            grep -viE 'miniupnp|tuxfamily|^ *\(c\)|^for more information|^Go to' |
+            grep -v '^ *$' | tail -1)
+    fi
+    printf '%s' "$meaningful" | tr '\n' ' '
+}
+
 do_open() {
     [ -n "$WAN_IF" ] || { log "no default route interface, and WAN_IF is not set"; exit 1; }
     ip=$(internal_ip)
@@ -122,7 +142,7 @@ do_open() {
         ext=$(echo "$out" | sed -n 's/.*ExternalIPAddress = //p' | head -1)
         log "mapped $PROTO/$PORT -> $ip (external $ext, lease ${LEASE}s)"
     else
-        log "FAILED to map $PROTO/$PORT: $(echo "$out" | tail -2 | tr '\n' ' ')"
+        log "FAILED to map $PROTO/$PORT: $(upnpc_error "$out")"
         exit 1
     fi
 }
