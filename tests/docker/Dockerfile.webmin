@@ -40,8 +40,8 @@ COPY . /src
 # the image does not carry produces an error three steps into a container run,
 # where it reads as a broken pipeline stage rather than a missing file.
 RUN test -f /src/packaging/deb/control.in \
- && test -x /src/tools/vpn-client \
- && test -x /src/tools/vpn-server \
+ && test -f /src/tools/vpn-client \
+ && test -f /src/tools/vpn-server \
  && test -f /src/Makefile \
  && test -f /src/VERSION \
  && test -f /src/openvpn-server/module.info

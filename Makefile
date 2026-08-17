@@ -213,8 +213,9 @@ dist: build deb ## Assemble the release assets and their checksums
 	@mkdir -p $(BUILD)/dist
 	@cp $(PACKAGE) $(BUILD)/dist/
 	@cp $(DEB_FILE) $(BUILD)/dist/
-	@cp tools/vpn-client tools/vpn-server tools/upnp-port-forward tools/vpn-extip $(BUILD)/dist/
-	@cp packaging/install.sh $(BUILD)/dist/
+	@install -m 0755 tools/vpn-client tools/vpn-server \
+	  tools/upnp-port-forward tools/vpn-extip $(BUILD)/dist/
+	@install -m 0755 packaging/install.sh $(BUILD)/dist/
 	@cd $(BUILD)/dist && sha256sum * > SHA256SUMS
 	@ls -l $(BUILD)/dist
 	@cat $(BUILD)/dist/SHA256SUMS
