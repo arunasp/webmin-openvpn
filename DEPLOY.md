@@ -145,6 +145,12 @@ nothing newer. It is self-contained shell, so extracting it works:
     tar xzf EasyRSA-3.x.y.tgz -C /usr/local/share
     ln -sfn /usr/local/share/EasyRSA-3.x.y /usr/local/share/easy-rsa
 
+Package layouts differ, and both are handled. Debian and Ubuntu put the
+script in /usr/share/easy-rsa; Red Hat packages put it in a versioned
+subdirectory, /usr/share/easy-rsa/3.2.1/easyrsa, with 3 and 3.0 pointing at
+it. The search prefers the directory itself, then the major symlink, then
+the highest version present.
+
 /usr/local/share/easy-rsa is already in the search path, so nothing needs
 configuring. EASYRSA_BIN in /etc/default/vpn-tools overrides the search
 entirely for an installation somewhere else. An existing CA directory holds

@@ -295,6 +295,24 @@ find_easyrsa() {
             abs_path "$dir/easyrsa"
             return 0
         fi
+        # Red Hat packages install into a versioned subdirectory and keep
+        # major and minor symlinks beside it: /usr/share/easy-rsa/3.2.1/easyrsa,
+        # with 3 and 3.0 pointing at it. Debian puts the script directly in
+        # /usr/share/easy-rsa. Looking only in the directory itself finds
+        # nothing on a host where easy-rsa is installed and working.
+        if [ -x "$dir/3/easyrsa" ]; then
+            abs_path "$dir/3/easyrsa"
+            return 0
+        fi
+        # Failing that, the highest version present. sort -V rather than sort,
+        # or 3.10 would lose to 3.9.
+        local versioned
+        versioned=$(find "$dir" -maxdepth 2 -mindepth 2 -name easyrsa -type f \
+                    2>/dev/null | sort -V | tail -1)
+        if [ -n "$versioned" ] && [ -x "$versioned" ]; then
+            abs_path "$versioned"
+            return 0
+        fi
     done
     return 1
 }

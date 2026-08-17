@@ -600,6 +600,46 @@ assert_exit "importing over an existing PKI is refused" 1 "$RC"
 rm -rf "$src" "$src.mixed"
 
 echo
+echo "== init: easy-rsa in a versioned directory"
+# Red Hat packages install to /usr/share/easy-rsa/<version>/easyrsa with major
+# and minor symlinks beside it; Debian puts the script in the directory
+# itself. Looking only at the directory finds nothing on a host where
+# easy-rsa is installed and working.
+rhroot=$(new_bare_fixture modern)
+rm -f "$rhroot/easyrsa/easyrsa"
+rhshare=$(mktemp -d)
+mkdir -p "$rhshare/easy-rsa/3.2.1/x509-types"
+cp "$rhroot/bin/easyrsa-fake" "$rhshare/easy-rsa/3.2.1/easyrsa" 2>/dev/null ||
+    printf '#!/bin/sh\nexit 0\n' > "$rhshare/easy-rsa/3.2.1/easyrsa"
+chmod 755 "$rhshare/easy-rsa/3.2.1/easyrsa"
+ln -s 3.2.1 "$rhshare/easy-rsa/3"
+
+resolved=$(cd "$repo" && bash -c "
+    source <(sed -n '/^abs_path/,/^}/p;/^find_easyrsa/,/^}/p' tools/vpn-server)
+    EASYRSA_BIN=; EASYRSA_DIR=/nonexistent
+    EASYRSA_SEARCH_PATH='$rhshare/easy-rsa'
+    find_easyrsa")
+assert_eq "the major symlink is preferred" \
+    "$rhshare/easy-rsa/3/easyrsa" "$resolved"
+
+# Without the symlink, the highest version present. sort -V, or 3.10 loses to
+# 3.9.
+rm "$rhshare/easy-rsa/3"
+for v in 3.9.0 3.10.0; do
+    mkdir -p "$rhshare/easy-rsa/$v"
+    printf '#!/bin/sh\nexit 0\n' > "$rhshare/easy-rsa/$v/easyrsa"
+    chmod 755 "$rhshare/easy-rsa/$v/easyrsa"
+done
+resolved=$(cd "$repo" && bash -c "
+    source <(sed -n '/^abs_path/,/^}/p;/^find_easyrsa/,/^}/p' tools/vpn-server)
+    EASYRSA_BIN=; EASYRSA_DIR=/nonexistent
+    EASYRSA_SEARCH_PATH='$rhshare/easy-rsa'
+    find_easyrsa")
+assert_eq "otherwise the highest version, compared as versions" \
+    "$rhshare/easy-rsa/3.10.0/easyrsa" "$resolved"
+rm -rf "$rhshare"
+
+echo
 echo "== init: refusals"
 run_init "$root" --host vpn.example.com
 assert_exit "init refuses to overwrite an existing server" 1 "$RC"
