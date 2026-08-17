@@ -19,7 +19,14 @@ which runs, in order:
 | `test` | the suite, against a fixture site |
 | `build` | packages the module as a `.wbm.gz` |
 | `verify` | checks the package the way Webmin's installer does |
-| `smoke` | read-only checks against a live installation; also run by `e2e-webmin` |
+
+Two more stages exist and are not part of `all`, because neither can run
+from a checkout alone:
+
+| Target | What it does | Needs |
+| --- | --- | --- |
+| `rpm` | builds the rpm on the distribution it targets, installs it there, and checks the result | a container engine |
+| `smoke` | read-only checks against a live installation; also run at the end of `e2e-webmin` | a running server |
 
 Two further targets need network access and are not part of `all`:
 
@@ -126,20 +133,18 @@ messages, because a push publishes history, not just the checkout.
 
 ## Keeping the documentation true
 
-`make docs` checks the facts the documentation states against the tree: that
-every `make` command it shows exists, that the module settings table matches
-the module's own defaults, that the Webmin and easy-rsa versions it names are
-the ones pinned in the Makefile, that release examples use a placeholder
-rather than a version that will age, that the stage table below covers every
-prerequisite of `all` and `lint`, and that internal links resolve.
+`make docs` compares the facts the documentation states against the tree, and
+they are the ones a code change can invalidate on its own: every `make`
+command shown exists, every subcommand the tools offer is documented and
+every one documented exists, every setting the tools read is mentioned
+somewhere, the module settings table matches the module's own defaults,
+pinned versions match the Makefile, release examples use a placeholder rather
+than a version that will age, the stage table above covers every prerequisite
+of `all` and `lint`, and internal links resolve.
 
-The facts it compares are the ones a code change can invalidate on its own:
-every make command shown exists, every subcommand the tools offer is
-documented and every one documented exists, every setting the tools read is
-mentioned somewhere, the module settings table matches the module, pinned
-versions match the Makefile, and internal links resolve. Each of those makes
-the documentation a dependency of the code rather than a courtesy: add a
-subcommand or a setting without a sentence about it and lint fails.
+Each of those makes the documentation a dependency of the code rather than a
+courtesy: add a subcommand or a setting without a sentence about it and lint
+fails.
 
 `make preflight` adds a note, not a failure, when unpushed commits change
 behaviour and touch no document. Plenty of changes need none - a test fix, a
@@ -188,6 +193,59 @@ Pull requests run `.github/workflows/ci.yml`, from forks as well. Merging to
 pass, tags `vMAJOR.MINOR.BUILD` and publishes the release assets. Bump
 `VERSION` when the minor or major changes; the build number takes care of
 itself.
+
+## Testing against a router
+
+The UPnP tools are the one part of this repository no pipeline stage can
+exercise. A mapping is a lease held by a device on the local network, and
+nothing in a container image can pretend to be one convincingly - the
+fixtures under tests/fixtures/ are captured output, which covers parsing and
+nothing else.
+
+What it needs is a host with an interface on the same segment as the router,
+and a container in host networking. Discovery is SSDP multicast, so any
+network mode that puts the container behind another layer of translation
+finds no gateway however it is configured.
+
+Use a spare port and a temporary configuration, never the one a server is
+using: a failed test then costs nothing and cannot take a tunnel down with
+it. On a router someone depends on, ask first.
+
+    docker run --rm --network host -v "$PWD/tools:/tools:ro" alpine sh
+    apk add --no-cache bash miniupnpc iproute2
+    printf "PORT=41194\nPROTO=UDP\nLEASE=300\nDESC=upnp-test\n" >/tmp/upnp-test.conf
+    (nc -u -l -p 41194 &)      # open refuses a port with no listener
+    export CONF=/tmp/upnp-test.conf
+    bash /tools/upnp-port-forward open
+    bash /tools/upnp-port-forward status --json   # mapping true, a lease
+    upnpc -d 41194 UDP                            # delete it behind the tool
+    bash /tools/upnp-port-forward status --json   # exit 1, mapping false
+    bash /tools/upnp-port-forward refresh         # logs the drop, repairs it
+    bash /tools/upnp-port-forward refresh         # silent, exit 0
+    bash /tools/upnp-port-forward close
+
+That sequence is what a router does on its own when it reboots or is handed
+a new address, compressed into ten seconds. It has been run against two
+routers, and the second reported no LastConnectionError at all - a field the
+first always sent.
+
+### Inside WSL
+
+Two settings a Linux host on the network needs neither of. Mirrored
+networking, in the .wslconfig file:
+
+    [wsl2]
+    networkingMode=mirrored
+
+and an inbound rule, because the Hyper-V firewall blocks inbound traffic by
+default and drops the replies to a discovery request. WSL ships allow rules
+for ICMP and mDNS, and none for SSDP:
+
+    New-NetFirewallHyperVRule -Name WSL-SSDP-In -Direction Inbound `
+      -VMCreatorId $wsl -Protocol UDP -LocalPorts Any
+
+Without either, discovery reports no gateway found, which reads exactly like
+a router with UPnP switched off.
 
 ## Commits
 

@@ -367,6 +367,16 @@ assert_contains "and the profile still names the right port" "$OUT" '"port":"119
 mv "$root/server/vpn.example.com-tcp.conf" "$root/server/server.conf"
 
 echo
+echo "== vpn-server: no server yet"
+# The package installs the tools before there is a server, so a host with
+# no configuration is a normal state and should read as one.
+noconf=$(new_bare_fixture modern)
+SERVER_CONF="$noconf/server/absent.conf" run_server "$noconf" status
+assert_exit "status refuses without a configuration" 1 "$RC"
+assert_contains "and names the file it wanted" "$OUT" "no server configuration at"
+assert_not_contains "rather than failing inside awk" "$OUT" "awk:"
+
+echo
 echo "== vpn-server: set-port refusals"
 run_server "$root" set-port abc
 assert_exit "set-port rejects a non-numeric port" 1 "$RC"
@@ -711,5 +721,83 @@ mkdir -p "$root/nowhere"
 EASYRSA_SEARCH_PATH="$root/nowhere" run_init "$root" --host vpn.example.com
 assert_exit "init fails when easy-rsa is absent" 1 "$RC"
 assert_contains "and says how to fix it" "$OUT" "EASYRSA_BIN"
+
+echo
+echo "== the module's configuration rewrite"
+# Perl, and the riskiest code in the module: it edits a file a running
+# server depends on. Kept in its own script because it needs the module
+# library rather than the tools.
+if out=$(perl "$here/conf-rewrite.pl" 2>&1); then
+    pass "the rewrite preserves what the form does not manage"
+else
+    fail "the rewrite preserves what the form does not manage" \
+         "$(printf '%s' "$out" | grep '^.FAIL.' | head -3 | tr '\n' ' ')"
+fi
+
+echo
+echo "== upnp-port-forward: reading the router"
+# Against output captured from a router rather than text this suite
+# generates. Parsing is where this breaks - spacing and which lines appear
+# vary between routers - and a fixture written to match the parser would
+# prove only that the two agree with each other.
+upnpconf=$(mktemp)
+printf 'WAN_IF=eth0\nPORT=1194\nPROTO=UDP\nLEASE=3600\n' > "$upnpconf"
+run_upnp() {
+    OUT=$(CONF="$upnpconf" INTERNAL_IP=192.0.2.98 UPNPC_LIST="$here/fixtures/$1" \
+          bash "$repo/tools/upnp-port-forward" status "${2:-}" 2>&1)
+    RC=$?
+}
+
+run_upnp upnpc-list.txt --json
+assert_exit "a present mapping succeeds" 0 "$RC"
+assert_contains "and reports the lease left on it" "$OUT" '"lease":3344'
+assert_contains "the external address" "$OUT" '"external":"198.51.100.7"'
+assert_contains "the WAN state" "$OUT" '"state":"Connected"'
+assert_contains "and the router answering" "$OUT" '"mapping":true'
+
+# The state that left a healthy server unreachable: everything up, the
+# router forwarding nothing.
+run_upnp upnpc-list-nomapping.txt --json
+assert_exit "a missing mapping fails" 1 "$RC"
+assert_contains "and says so" "$OUT" '"mapping":false'
+assert_contains "while still reporting the router" "$OUT" '"state":"Connected"'
+
+# A different fault, and worth a different code: the router is not
+# answering UPnP at all, so nothing can be concluded about the mapping.
+run_upnp upnpc-list-noigd.txt
+assert_exit "no IGD is a separate exit code" 2 "$RC"
+assert_contains "naming what was not found" "$OUT" "no IGD found"
+# refresh is what the timer runs: check, repair when needed, and record it.
+run_upnp_cmd() {
+    OUT=$(CONF="$upnpconf" INTERNAL_IP=192.0.2.98 UPNPC_LIST="$here/fixtures/$1" \
+          PATH="$upnpbin:$PATH" bash "$repo/tools/upnp-port-forward" "$2" 2>&1)
+    RC=$?
+}
+upnpbin=$(mktemp -d)
+printf '#!/bin/sh\necho "is redirected to internal 192.0.2.98:1194"\n' > "$upnpbin/upnpc"
+printf '#!/bin/sh\necho "UNCONN 0 0 0.0.0.0:1194 0.0.0.0:*"\n' > "$upnpbin/ss"
+chmod 755 "$upnpbin/upnpc" "$upnpbin/ss"
+
+run_upnp_cmd upnpc-list.txt refresh
+assert_exit "refresh succeeds while the mapping holds" 0 "$RC"
+assert_eq "and says nothing, so a drop stands out in the journal" "" "$OUT"
+
+run_upnp_cmd upnpc-list-nomapping.txt refresh
+assert_exit "refresh repairs a dropped mapping" 0 "$RC"
+assert_contains "recording that it was gone" "$OUT" "is gone from the router"
+assert_contains "and that it re-asserted it" "$OUT" "mapped UDP/1194"
+
+run_upnp_cmd upnpc-list-noigd.txt refresh
+assert_exit "refresh does not guess when no IGD answers" 2 "$RC"
+assert_not_contains "and attempts no repair" "$OUT" "mapped"
+# upnpc prints a banner naming its own website, and prints it last on
+# failure. Reporting the tail of its output therefore reports the footer.
+printf '#!/bin/sh\necho "upnpc : miniupnpc library test client"\necho "No IGD UPnP Device found on the network !"\necho "Go to http://example.invalid/ for more information."\n' > "$upnpbin/upnpc"
+chmod 755 "$upnpbin/upnpc"
+run_upnp_cmd upnpc-list.txt open
+assert_contains "a failure names the fault" "$OUT" "No IGD UPnP Device found"
+assert_not_contains "and not the tool banner" "$OUT" "for more information"
+rm -rf "$upnpbin"
+rm -f "$upnpconf"
 
 report

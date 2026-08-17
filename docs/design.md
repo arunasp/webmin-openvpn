@@ -20,9 +20,11 @@ like the rest of Webmin without imitating anything.
 
 ## The module holds no logic
 
-`index.cgi` renders `vpn-client list --json` and `vpn-server status --json`.
-Nothing in the module reads the PKI directly. Anything that changes state is a
-call to one of the tools.
+Every page renders what `vpn-client list --json`, `vpn-server status --json`
+or `vpn-server show-config` reports. Nothing in the module reads the PKI
+directly, and anything that changes state is a call to one of the tools -
+including the settings form, which parses the configuration the tool prints
+and hands the result back through `apply-config`.
 
 The consequence worth having: every path the interface can take is a path that
 can be taken from a shell, so it can be covered by a suite that needs no web
@@ -125,6 +127,26 @@ produce an equivalent file with a later nextUpdate, which quietly extends
 how long the server trusts a list it was given rather than preserving what
 was there.
 
+## Settings as fields, the file as a fallback
+
+The settings page edits directives, not text. A form knows what each value
+means: it refuses a netmask that is not one, keeps pushed routes as a list,
+and writes back in place so that every directive it does not manage - and
+every comment explaining why a line is there - survives exactly as it was.
+A textarea over server.conf accepts anything, including a file that starts a
+daemon nobody can reach.
+
+Three things are kept out of it. The port and protocol belong to set-port,
+since they also live in the port mapping and in every issued profile. The
+certificate, key and tls-crypt paths are identity rather than settings.
+And the file as a whole is editable only while the server is down, which is
+the next section.
+
+What the restart check cannot catch is a configuration that starts and is
+wrong: a pushed route to the wrong network leaves a server running and
+clients unable to reach anything. The confirmation says so rather than
+implying that surviving a restart means the change was correct.
+
 ## The configuration locks down once it works
 
 What makes editing `server.conf` from a browser dangerous is losing a VPN
@@ -187,6 +209,31 @@ beside itself. The two ship together, and hardcoding either location meant
 `set-port` skipped regenerating profiles on the other - after it had already
 changed the port those profiles name.
 
+## A port mapping is a lease, not a setting
+
+A UPnP mapping expires. A router that reboots, or is handed a new address by
+the ISP, forgets every mapping it held. So the mapping is re-asserted on a
+schedule rather than requested once, and the interval is kept well below the
+lease so several attempts fall inside it.
+
+Two things follow that are less obvious. The unit that owns the mapping is
+`Type=oneshot` with `RemainAfterExit=yes`, which is right for its lifecycle -
+it holds the mapping while the VPN runs and tears it down on stop - but it
+means the unit is active from the moment it succeeds. Starting an active unit
+does nothing, so a timer aimed at it fires on schedule and re-runs nothing.
+The refresh is therefore a second unit that exits when it finishes.
+
+And the schedule is `OnCalendar` rather than `OnUnitActiveSec`, because the
+latter counts from the service last becoming active - which, for a unit that
+never deactivates, is never again. Both faults were present at once, and the
+result was a healthy server that nothing outside could reach, with every unit
+reporting active.
+
+That is also why `status` fails when the mapping is absent rather than
+printing the router's table and exiting zero. A lease that has quietly
+lapsed is indistinguishable from a working site unless something asks the
+router and treats the answer as a result.
+
 ## Site identity lives on the server
 
 No host name, network, path or key material belonging to a live installation
@@ -204,7 +251,7 @@ handling is exercised against certificates openssl produced. What it cannot esta
 how the genuine dependencies behave: a fake that is handed its answers by the
 fixture proves nothing about the tool it stands in for.
 
-That gap is covered separately, by four stages that each remove one kind of
+That gap is covered separately, by the stages that each remove one kind of
 pretending:
 
 - `make e2e` runs `init` against an easy-rsa checkout, across several releases.
@@ -217,3 +264,8 @@ pretending:
   HTTP. It is the only stage that can tell whether a page renders, and the
   first time it ran by hand it found JSON that broke the server panel whenever
   nobody was connected.
+- `make rpm` builds the package on the distribution it targets and installs it
+  there. It is the only place the tools meet a Red Hat easy-rsa, which lives
+  in a versioned subdirectory - a layout the fixtures were written to match
+  rather than derived from, so until this ran they agreed with the code and
+  with nothing else.

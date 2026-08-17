@@ -120,6 +120,10 @@ program.
     install -o root -g root -m 0755 vpn-client /usr/local/sbin/vpn-client
     install -o root -g root -m 0755 vpn-server /usr/local/sbin/vpn-server
 
+The release carries two more, `upnp-port-forward` and `vpn-extip`. They are
+optional and inert until configured; install them the same way if the site
+wants them, and skip them otherwise.
+
 `vpn-server` calls the `vpn-client` installed beside it, so both belong in the
 same directory. Then confirm against the installed site, in this order, before
 trusting anything:
@@ -130,8 +134,7 @@ trusting anything:
 
 ## Hosts that differ
 
-Four things vary between hosts, and each has one setting or one step behind
-it.
+What varies between hosts, and the setting or step behind each.
 
 **easy-rsa older than 3.1.** 3.0.x prompts for a PEM passphrase even when
 told nopass, so it cannot be driven unattended - which affects add and
@@ -193,9 +196,19 @@ openvpn-server@NAME. Set SERVER_UNIT to whichever this host runs. Naming
 the wrong one produces a revocation that reports success while the revoked
 client stays connected.
 
-**Not Debian or Ubuntu.** The .deb is for those; everywhere else use
-install.sh, which is POSIX sh and needs only curl and sha256sum. There is
-no rpm, because there is nowhere here to test one.
+**Not Debian or Ubuntu.** The .deb is for those. There is an rpm as well,
+built and installed inside a Rocky Linux container by `make rpm` and checked
+there - including that the tools find the Red Hat easy-rsa, which lives in a
+versioned subdirectory. It is not published in a release yet: the stage that
+builds it has to run green in CI first. Until then, and on any other
+distribution, use install.sh, which is POSIX sh and needs only curl and
+sha256sum.
+
+On Red Hat 9 the rpm needs EPEL enabled. openvpn and easy-rsa are not in
+the base repositories there, so its dependencies cannot be satisfied
+without it:
+
+    dnf install epel-release
 
 **A firewall that is not UPnP.** init opens no ports. Whether that is an
 iptables rule saved for the next boot, a firewalld service, or a rule
@@ -227,6 +240,23 @@ To enable them:
     systemctl enable --now upnp-port-forward.service upnp-port-forward.timer
     upnp-port-forward status
 
+The timer runs `upnp-port-forward refresh`, which checks the router before
+acting: silent while the mapping holds, and a logged line naming the drop
+when it has gone, followed by a re-assertion. Asserting unconditionally
+would work too, since open is idempotent, but the journal would then show
+the same line every few minutes and there would be no way to tell a healthy
+site from one whose router forgets the mapping hourly:
+
+    journalctl -u upnp-port-forward-refresh.service | grep gone
+
+That command is the record of every time the tunnel went unreachable.
+
+The timer triggers upnp-port-forward-refresh.service rather than the unit
+above. The lifecycle unit stays active once it has run, and starting an
+active unit does nothing, so a timer aimed at it fires on schedule and
+re-runs nothing - which is how a mapping expires while everything reports
+healthy. Install all three files.
+
 The unit names openvpn-server@server in three places; change all three
 together if this host uses a different unit, and keep it in step with
 SERVER_UNIT. The timer interval must stay shorter than LEASE, or the
@@ -234,7 +264,9 @@ mapping expires between runs and the VPN goes unreachable from outside.
 
 vpn-server set-port rewrites the port and protocol in
 /etc/default/upnp-port-forward when that file exists, and says nothing when
-it does not. tests/smoke.sh checks the two agree.
+it does not. tests/smoke.sh checks that the two agree, and that the router is
+forwarding the port at the moment it runs - the configuration being right
+says nothing about whether the mapping is still there.
 
 ## Installing the module
 
@@ -269,7 +301,9 @@ Verifying in a browser is not optional. Webmin refuses to run its
 library-dependent Perl from outside its own directory and requires
 `WEBMIN_CONFIG` to be set, so module configuration cannot be validated from a
 shell. `make apicheck` proves the functions the module calls exist in the
-target Webmin release; only the browser proves the page renders.
+target Webmin release, and `make e2e-webmin` drives the pages over HTTP in an
+installed Webmin, which is what proves they render. What neither covers is
+this installation: its configuration, its ACL grant and its tools.
 
 ## Creating a server
 

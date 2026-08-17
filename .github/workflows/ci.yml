@@ -109,6 +109,19 @@ jobs:
       - name: Run tunnel test
         run: make e2e-tunnel
 
+  rpm:
+    name: RPM
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      # Builds the package on the distribution it targets and installs it
+      # there. It is also the only stage that meets a Red Hat easy-rsa,
+      # which lives in a versioned subdirectory - a layout no other job
+      # here can produce.
+      - name: Build and check the rpm
+        run: make rpm
+
   webmin:
     name: E2E Webmin
     runs-on: ubuntu-latest

@@ -1,0 +1,21 @@
+# Re-assert the mapping. Optional, and pointless without
+# upnp-port-forward.service.
+#
+# WHY A SECOND UNIT: the lifecycle unit is Type=oneshot with
+# RemainAfterExit=yes, so systemd considers it active from the moment it
+# succeeds until something stops it. Starting an active unit does nothing, so
+# a timer pointed at it would fire on schedule and re-run nothing at all. This
+# one exits when it finishes and can therefore be run again.
+#
+# refresh checks before it acts, so the journal stays quiet while the
+# mapping holds and records every drop. That record is the difference
+# between a site that is fine and one whose router forgets the mapping
+# hourly - and asserting unconditionally would hide it.
+[Unit]
+Description=Re-assert the UPnP port mapping for the VPN
+Documentation=file:/usr/sbin/upnp-port-forward
+After=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/sbin/upnp-port-forward refresh

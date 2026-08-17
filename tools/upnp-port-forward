@@ -46,6 +46,13 @@ CHECKIP_URL=${CHECKIP_URL:-}
 log() { logger -t upnp-port-forward "$*" 2>/dev/null; echo "$*"; }
 
 internal_ip() {
+    # A seam for testing, and for a host whose address on the LAN is not the
+    # one the interface reports - a bridge, or a second address on the same
+    # link. The router needs the address it will forward to.
+    if [ -n "${INTERNAL_IP:-}" ]; then
+        printf '%s\n' "$INTERNAL_IP"
+        return 0
+    fi
     [ -n "$WAN_IF" ] || return 1
     ip -4 addr show "$WAN_IF" 2>/dev/null | awk '/inet /{print $2}' | cut -d/ -f1
 }
@@ -56,8 +63,72 @@ listening() {
     ss -ln"$flag" 2>/dev/null | grep -qE ":${PORT}[[:space:]]"
 }
 
-case "${1:-}" in
-open)
+# Quoted, or null when empty. Enough for the fields here: they come from a
+# router's own output and hold addresses, URLs and status words.
+json_str() {
+    if [ -z "${1:-}" ]; then
+        printf 'null'
+    else
+        printf '"%s"' "$(printf '%s' "$1" | sed 's/\\/\\\\/g; s/"/\\"/g')"
+    fi
+}
+
+# One call to the router, parsed once. upnpc -l answers everything a status
+# view needs: whether an IGD was found at all, the external address, the WAN
+# connection state, and the mapping table with its lease countdown.
+#
+# UPNPC_LIST exists so the parsing can be tested against captured output from
+# a router. Parsing is where this breaks - routers vary in spacing and in
+# which lines they emit - and a test that generates the text it then parses
+# proves only that the generator and the parser agree.
+router_list() {
+    if [ -n "${UPNPC_LIST:-}" ]; then
+        cat "$UPNPC_LIST"
+    else
+        timeout "${UPNPC_TIMEOUT:-8}" upnpc -m "$WAN_IF" -l 2>&1
+    fi
+}
+
+# The row for the mapping this host is configured for: the lease in seconds,
+# or nothing when the router is not forwarding it. Matched on external port,
+# protocol, internal address and internal port together, since a router will
+# happily hold a mapping for the same port pointing somewhere else.
+our_lease() {
+    local list=$1 ip
+    ip=$(internal_ip)
+    printf '%s\n' "$list" |
+        awk -v proto="$PROTO" -v port="$PORT" -v ip="$ip" '
+            $2 == proto {
+                split($3, a, "->")
+                split(a[2], b, ":")
+                if (a[1] == port && b[1] == ip && b[2] == port) {
+                    print $NF
+                    exit
+                }
+            }'
+}
+
+# The line worth reading out of upnpc output.
+#
+# It prints a banner naming its own project and website, and prints it last on
+# failure - so taking the tail reports the footer and hides the fault. This
+# picks the lines that say what went wrong, and falls back to the last line
+# that is not banner text.
+upnpc_error() {
+    local out=$1 meaningful
+    meaningful=$(printf '%s\n' "$out" |
+        grep -viE 'miniupnp|tuxfamily|^ *\(c\)|^for more information|^Go to' |
+        grep -iE 'no igd|not found|failed|error|denied|refused|[0-9]{3} \(' |
+        head -2)
+    if [ -z "$meaningful" ]; then
+        meaningful=$(printf '%s\n' "$out" |
+            grep -viE 'miniupnp|tuxfamily|^ *\(c\)|^for more information|^Go to' |
+            grep -v '^ *$' | tail -1)
+    fi
+    printf '%s' "$meaningful" | tr '\n' ' '
+}
+
+do_open() {
     [ -n "$WAN_IF" ] || { log "no default route interface, and WAN_IF is not set"; exit 1; }
     ip=$(internal_ip)
     [ -n "$ip" ] || { log "no address on $WAN_IF"; exit 1; }
@@ -71,9 +142,14 @@ open)
         ext=$(echo "$out" | sed -n 's/.*ExternalIPAddress = //p' | head -1)
         log "mapped $PROTO/$PORT -> $ip (external $ext, lease ${LEASE}s)"
     else
-        log "FAILED to map $PROTO/$PORT: $(echo "$out" | tail -2 | tr '\n' ' ')"
+        log "FAILED to map $PROTO/$PORT: $(upnpc_error "$out")"
         exit 1
     fi
+}
+
+case "${1:-}" in
+open)
+    do_open
     ;;
 close)
     upnpc -m "$WAN_IF" -d "$PORT" "$PROTO" >/dev/null 2>&1
@@ -93,14 +169,71 @@ extip)
         exit 1
     fi
     ;;
+refresh)
+    # What the timer runs: check, repair if needed, and leave a record either
+    # way. Calling open unconditionally would work - it is idempotent - but the
+    # journal would then show a mapping being asserted every ten minutes
+    # forever, and no way to tell a healthy site from one whose router forgets
+    # the mapping hourly. Checking first makes a drop a logged event.
+    if list=$(router_list) && lease=$(our_lease "$list") && [ -n "$lease" ]; then
+        # Quiet on the happy path: this runs every few minutes, and a line
+        # each time is noise that hides the lines that matter.
+        [ -n "${VERBOSE:-}" ] && log "mapping present, lease ${lease}s"
+        exit 0
+    fi
+    if ! printf '%s\n' "$list" | grep -q '^Found valid IGD'; then
+        log "no IGD answering on ${WAN_IF:-unknown} - cannot check or repair the mapping"
+        exit 2
+    fi
+    log "mapping for $PROTO/$PORT is gone from the router - re-asserting"
+    do_open
+    ;;
 status)
-    echo "  configured: $PROTO/$PORT -> $(internal_ip) via ${WAN_IF:-none}, lease ${LEASE}s"
-    printf '  listening:  '; listening && echo yes || echo "NO"
-    echo "  router mappings:"
-    upnpc -m "$WAN_IF" -l 2>/dev/null | grep -E "^ *[0-9]+ (UDP|TCP)" | sed 's/^/    /'
+    list=$(router_list)
+    igd=$(printf '%s\n' "$list" | sed -n 's/^Found valid IGD : *//p' | head -1)
+    ext=$(printf '%s\n' "$list" | sed -n 's/^ExternalIPAddress = *//p' | head -1)
+    state=$(printf '%s\n' "$list" | sed -n 's/^Status : *\([A-Za-z]*\).*/\1/p' | head -1)
+    uptime=$(printf '%s\n' "$list" | sed -n 's/^Status :.*uptime=\([0-9]*\)s.*/\1/p' | head -1)
+    lasterr=$(printf '%s\n' "$list" | sed -n 's/^Status :.*LastConnectionError : *//p' | head -1)
+    lease=$(our_lease "$list")
+    ip=$(internal_ip)
+    listening_now=no
+    listening && listening_now=yes
+
+    if [ "${2:-}" = --json ]; then
+        printf '{"port":%s,"proto":"%s","internal":"%s","listening":%s,' \
+            "$PORT" "$PROTO" "$ip" \
+            "$([ "$listening_now" = yes ] && echo true || echo false)"
+        printf '"igd":%s,"external":%s,"state":%s,"uptime":%s,"last_error":%s,' \
+            "$(json_str "$igd")" "$(json_str "$ext")" "$(json_str "$state")" \
+            "${uptime:-null}" "$(json_str "$lasterr")"
+        printf '"mapping":%s,"lease":%s}\n' \
+            "$([ -n "$lease" ] && echo true || echo false)" "${lease:-null}"
+    else
+        echo "  configured: $PROTO/$PORT -> $ip via ${WAN_IF:-none}, lease ${LEASE}s"
+        echo "  listening:  $listening_now"
+        echo "  router:     ${igd:-none found}"
+        echo "  external:   ${ext:-unknown}"
+        echo "  wan:        ${state:-unknown}${uptime:+, up ${uptime}s}${lasterr:+, last error $lasterr}"
+        echo "  mappings:"
+        printf '%s\n' "$list" | grep -E "^ *[0-9]+ (UDP|TCP)" | sed 's/^/    /' || true
+    fi
+
+    # A mapping is a lease. A router that reboots, or is handed a new address
+    # by the ISP, forgets every one it had - while the service that asked for
+    # it stays active, because it succeeded once. Exiting non-zero is what
+    # lets a check notice, rather than leaving it to whoever tries to connect.
+    if [ -z "$igd" ]; then
+        echo "  no IGD found: the router is not answering UPnP" >&2
+        exit 2
+    fi
+    if [ -z "$lease" ]; then
+        echo "  MISSING: the router is not forwarding $PROTO/$PORT to $ip" >&2
+        exit 1
+    fi
     ;;
 *)
-    echo "usage: $0 {open|close|extip|status}" >&2
+    echo "usage: $0 {open|close|refresh|extip|status [--json]}" >&2
     exit 2
     ;;
 esac

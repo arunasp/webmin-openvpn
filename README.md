@@ -68,12 +68,17 @@ server should run a released artifact rather than a working copy - see
 Client installation for Windows, Android, iOS, macOS and Linux is covered in
 [docs/clients.md](docs/clients.md).
 
-Install the two shell tools the module calls:
+The tools the module calls ship in the same release. On Debian and Ubuntu:
 
 ```sh
-install -o root -g root -m 0755 tools/vpn-client /usr/local/sbin/vpn-client
-install -o root -g root -m 0755 tools/vpn-server /usr/local/sbin/vpn-server
+curl -fsSLO $REL/openvpn-server-tools_X.Y.Z_all.deb
+apt install ./openvpn-server-tools_X.Y.Z_all.deb
 ```
+
+Elsewhere, `install.sh` from the release installs the same files. It carries
+four: `vpn-client` and `vpn-server`, which the module drives, and
+`upnp-port-forward` and `vpn-extip`, which are optional and inert until
+configured.
 
 Create `/etc/default/vpn-tools` describing the site, then confirm the tools see
 the server. Both steps are covered in [DEPLOY.md](DEPLOY.md).
@@ -123,6 +128,15 @@ vpn-client regen --all          # rebuild profiles from existing certificates
 Profiles are written to `/etc/openvpn/clients/<name>.ovpn`, mode `0600`, with
 the CA, certificate, private key and `tls-crypt` key inlined so a device can
 import a single file.
+
+### Changing the tunnel settings
+
+The module edits the client network, the pushed routes and DNS, the search
+domain, split or full tunnel, the cipher list, the auth digest, the minimum
+TLS version, keepalive and verbosity as fields, and writes them back in
+place: any directive it does not manage, and any comment, is left exactly as
+it was. Saving restarts the server and restores the previous configuration
+if it refuses to start.
 
 ### Changing the listening port
 
@@ -180,10 +194,11 @@ make all          # everything that needs no network
 make e2e          # adds the stages that clone Webmin and easy-rsa
 make e2e-tunnel   # a server, a client and a revoked certificate
 make e2e-webmin   # the module driven over HTTP in an installed Webmin
+make rpm          # the rpm built and installed on the distribution it targets
 make preflight    # what must pass before pushing
 ```
 
-The last two need a container engine. [CONTRIBUTING.md](CONTRIBUTING.md)
+The three before `preflight` need a container engine. [CONTRIBUTING.md](CONTRIBUTING.md)
 describes the stages, the coding standards and how the test doubles are
 used.
 

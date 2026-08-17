@@ -73,7 +73,20 @@ need_root() {
 }
 
 conf_value() {
+    [ -r "$SERVER_CONF" ] || return 1
     awk -v k="$1" '$1 == k { v = $2 } END { print v }' "$SERVER_CONF"
+}
+
+# Say what is missing, once, instead of letting every awk that touches the
+# file say it. A host where init has not run yet is a normal state - the
+# package installs the tools before there is a server - and it should read
+# as one rather than as a fault.
+need_config() {
+    [ -r "$SERVER_CONF" ] && return 0
+    echo "no server configuration at $SERVER_CONF" >&2
+    echo "Run vpn-server init to build one, or set SERVER_CONF if it is" >&2
+    echo "somewhere else." >&2
+    exit 1
 }
 
 timestamp() {
@@ -125,6 +138,7 @@ unit_active() {
 }
 
 cmd_status() {
+    need_config
     local active port proto count crl
     active=$(systemctl is-active "$SERVER_UNIT" 2>/dev/null)
     [ -n "$active" ] || active=unknown
@@ -194,6 +208,7 @@ apply_config() {
 }
 
 cmd_set_port() {
+    need_config
     local port=$1 proto=${2:-} cur_port cur_proto tmp
     case "$port" in
         ''|*[!0-9]*) echo "port must be a number" >&2; return 1 ;;
@@ -743,6 +758,7 @@ status)
     cmd_status "${2:-}"
     ;;
 show-config)
+    need_config
     [ -r "$SERVER_CONF" ] || { echo "cannot read $SERVER_CONF" >&2; exit 1; }
     cat "$SERVER_CONF"
     ;;
